@@ -64,6 +64,26 @@ inconsistent at the time this was written — check the current model list
 at https://ai.google.dev (or Google AI Studio) before deploying, and
 update that constant if it's changed.
 
+## Embedding in another site (e.g. the FIB dashboard)
+
+The tool is built on the dashboard's design tokens (colors, Space Grotesk / Inter, 14px cards, pill buttons)
+and all of its CSS is scoped under a `.fib-tool` container, so it neither leaks styles into the page around
+it nor picks up that page's global styles. Add `?embed=1` to make the background transparent.
+
+```html
+<iframe id="fib-tool" src="https://fib-script-tool.vercel.app/?embed=1"
+        style="width:100%;border:0;min-height:700px" title="FIB script tool"></iframe>
+<script>
+  // optional: auto-resize the iframe to the tool's content
+  addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'fib-tool-height') document.getElementById('fib-tool').style.height = e.data.height + 'px';
+  });
+</script>
+```
+
+To restyle it, override the tokens from the host page's CSS, e.g. `.fib-tool { --ink: #123; --disruption: #c33; }`
+(only works when the tool's CSS is on the same page, not inside an iframe).
+
 ## Cost note
 
 Every click of "Generate script," "Redo this panel," or "Generate

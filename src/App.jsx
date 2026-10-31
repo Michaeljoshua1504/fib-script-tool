@@ -225,10 +225,12 @@ async function callImageApi(payload) {
 function AutoGrowTextarea({ value, onChange, className }) {
   const ref = useRef(null)
   const grow = (el) => { if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px' } }
+  useEffect(() => { document.fonts?.ready.then(() => grow(ref.current)) }, [])
   return (
     <textarea
       ref={(el) => { ref.current = el; grow(el) }}
       className={className}
+      rows={1}
       value={value}
       onChange={(e) => { onChange(e); grow(e.target) }}
       style={{ resize: 'none', overflow: 'hidden' }}
@@ -515,8 +517,8 @@ function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpe
 
       <div className="case-hero">
         <div className="eyebrow">Case storyboard</div>
-        <input type="text" className="case-title-input" aria-label="Case title" value={fields.fTitle} onChange={(e) => setField('fTitle', e.target.value)} />
-        <input type="text" className="case-date-input" aria-label="Date and location" value={fields.fDate} onChange={(e) => setField('fDate', e.target.value)} />
+        <AutoGrowTextarea className="case-title-input" value={fields.fTitle} onChange={(e) => setField('fTitle', e.target.value)} />
+        <AutoGrowTextarea className="case-date-input" value={fields.fDate} onChange={(e) => setField('fDate', e.target.value)} />
       </div>
 
       <div className="tabbar" role="tablist">
@@ -536,15 +538,14 @@ function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpe
           </div>
           {bulk && <div className="bulk-progress"><div style={{ width: `${(bulk.done / bulk.total) * 100}%` }} /></div>}
 
-          <div className="section-label">Cast — reference images</div>
+          <div className="section-label" style={{ marginTop: 22 }}>Cast — reference images</div>
           {castCards}
 
-          <div className="section-label storyboard-label">Storyboard</div>
           <div className="board">
             {scriptBeats.map((beat, i) => {
               const img = panelImages[i]
               return (
-                <div className={`board-panel${i === 1 || i === 4 ? ' full' : ''}`} style={{ '--panel-accent': `var(${PANEL_ACCENTS[i % PANEL_ACCENTS.length]})` }} key={i}>
+                <div className={`board-panel${i === 0 || i === 1 || i === 4 ? ' full' : ''}`} style={{ '--panel-accent': `var(${PANEL_ACCENTS[i % PANEL_ACCENTS.length]})` }} key={i}>
                   <div className="panel-card">
                     <div className="panel-num-badge">#{i + 1}</div>
                     <div className="panel-title">{beat.title}</div>
@@ -566,7 +567,9 @@ function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpe
                     {editingPanel === i ? (
                       <textarea autoFocus className="panel-edit-area" defaultValue={beat.body.trim()} onBlur={(e) => saveEditedPanel(i, e.target.value)} />
                     ) : (
-                      <div className="panel-body" style={{ cursor: 'text' }} onClick={() => setEditingPanel(i)}>{renderBeatBody(beat.body)}</div>
+                      i === 1
+                        ? <div className="panel-note">The nodes above come from your chain field. Use “Edit text” to change the written list.</div>
+                        : <div className="panel-body" style={{ cursor: 'text' }} onClick={() => setEditingPanel(i)}>{renderBeatBody(beat.body)}</div>
                     )}
                     {panelBusy === i && <div className="panel-busy-note">Redoing this panel…</div>}
                     <div className="panel-actions">
@@ -821,7 +824,7 @@ async function checkPassword() {
   return { ok: res.ok, status: res.status, error: body.error }
 }
 
-export default function App() {
+function Gate() {
   const [gate, setGate] = useState('checking') // 'checking' | 'locked' | 'open' | 'error'
   const [input, setInput] = useState('')
   const [message, setMessage] = useState('')
@@ -866,6 +869,31 @@ export default function App() {
         <div className="controls"><button type="submit" className="primary" disabled={working || !input}>{working ? 'Checking…' : 'Unlock'}</button></div>
         {message && <div className="error-box">{message}</div>}
       </form>
+    </div>
+  )
+}
+
+// ---------- Root: scoped container + embed mode ----------
+// Add ?embed=1 to the URL when showing the tool inside another page (e.g. in an iframe on the
+// dashboard): the background goes transparent and the page reports its height to the parent via
+// postMessage({ type: 'fib-tool-height', height }) so the iframe can resize itself.
+
+export default function App() {
+  const embed = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('embed') === '1'
+  const rootRef = useRef(null)
+
+  useEffect(() => {
+    if (!embed || window.parent === window) return
+    const post = () => window.parent.postMessage({ type: 'fib-tool-height', height: document.documentElement.scrollHeight }, '*')
+    const ro = new ResizeObserver(post)
+    ro.observe(rootRef.current)
+    post()
+    return () => ro.disconnect()
+  }, [embed])
+
+  return (
+    <div ref={rootRef} className={`fib-tool${embed ? ' embed' : ''}`}>
+      <Gate />
     </div>
   )
 }
