@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 
 const FIELD_DEFS = [
   { id: 'fTitle', label: 'Case title', type: 'text', group: 'Beat 1 · Cold open', placeholder: 'FIB-0XX — short case name' },
@@ -21,7 +21,7 @@ const EMPTY_FIELDS = Object.fromEntries(FIELD_DEFS.map((f) => [f.id, '']))
 const PANEL_ACCENTS = ['--disruption', '--improvement', '--accent-yellow']
 
 const SKETCH_LABELS = [
-  'Establishing shot', 'Chain map — see above', 'The break',
+  'Establishing shot', 'Chain map — red = hit by the shock', 'The break',
   'Two-shot — reaction', 'Your turn: the fork', 'Aftermath', 'Closing shot',
 ]
 
@@ -166,7 +166,7 @@ function renderBeatBody(md) {
     const line = raw.trim()
     if (line.startsWith('- ')) {
       if (!listBuf) listBuf = []
-      listBuf.push(<li key={`li-${key++}`}>{line.slice(2)}</li>)
+      listBuf.push(<li key={`li-${key++}`}>{line.slice(2).replaceAll('**', '')}</li>)
       continue
     }
     flushList()
@@ -175,7 +175,7 @@ function renderBeatBody(md) {
       out.push(<div className="line" key={`dl-${key++}`}><span className="speaker">{m[1]}:</span> {m[2]}</div>)
       continue
     }
-    if (line.length > 0) out.push(<p key={`p-${key++}`}>{line}</p>)
+    if (line.length > 0) out.push(<p key={`p-${key++}`}>{line.replaceAll('**', '')}</p>)
   }
   flushList()
   return out
@@ -190,10 +190,15 @@ function splitNodeLine(line) {
   return { label: line.slice(0, idx).trim(), desc: line.slice(idx + 1).trim() }
 }
 
+const PW_KEY = 'fib-app-password'
+const getPassword = () => { try { return sessionStorage.getItem(PW_KEY) || '' } catch { return '' } }
+const setPassword = (v) => { try { sessionStorage.setItem(PW_KEY, v) } catch {} }
+const apiHeaders = () => ({ 'Content-Type': 'application/json', 'x-app-password': getPassword() })
+
 async function callApi(fields, beatNum) {
   const res = await fetch('/api/generate', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: apiHeaders(),
     body: JSON.stringify(beatNum ? { fields, beatNum } : { fields }),
   })
   if (!res.ok) {
@@ -203,11 +208,11 @@ async function callApi(fields, beatNum) {
   return res.json()
 }
 
-async function callImageApi(prompt) {
+async function callImageApi(payload) {
   const res = await fetch('/api/generate-image', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt }),
+    headers: apiHeaders(),
+    body: JSON.stringify(typeof payload === 'string' ? { prompt: payload } : payload),
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
@@ -288,15 +293,27 @@ function FieldsForm({ fields, setField, onLoadExample, onGenerate, busy, error, 
 
 // ---------- Case page ----------
 
-function FlowRow({ fields, editable, onEditNode }) {
+/** Chain of nodes. Pass onSelect to make the nodes clickable; shockText highlights nodes the shock mentions. */
+function FlowRow({ fields, onSelect, selected, shockText }) {
   const lines = parseNodeLines(fields.fNodes)
+  const shock = (shockText || '').toLowerCase()
   return (
     <div className="flow-row">
       {lines.map((line, i) => {
         const { label, desc } = splitNodeLine(line)
+        const word = label.split(/[\s(/,:&-]+/).find((w) => w.length > 3) || label
+        const hit = shock && word && shock.includes(word.toLowerCase())
+        const cls = `flow-node${onSelect ? ' clickable' : ''}${selected === i ? ' selected' : ''}${hit ? ' hit' : ''}`
         return (
           <div key={i} style={{ display: 'contents' }}>
-            <div className="flow-node" onClick={editable ? () => onEditNode(i, lines) : undefined}>
+            <div
+              className={cls}
+              onClick={onSelect ? () => onSelect(i) : undefined}
+              onKeyDown={onSelect ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(i) } } : undefined}
+              role={onSelect ? 'button' : undefined}
+              tabIndex={onSelect ? 0 : undefined}
+            >
+              {hit && <div className="n-hit">Hit by the shock</div>}
               <div className="n-label">{label}</div>
               <div className="n-desc">{desc}</div>
             </div>
@@ -304,6 +321,42 @@ function FlowRow({ fields, editable, onEditNode }) {
           </div>
         )
       })}
+    </div>
+  )
+}
+
+/** Interactive decision flowchart: shock → two reactions → real outcome. Click any box to read its text. */
+function DecisionFork({ fields }) {
+  const [open, setOpen] = useState(null)
+  const dm = fields.fDecisionMaker.trim() || 'Decision maker'
+  const rr = fields.fRiskRaiser.trim() || 'Risk raiser'
+  const toggle = (k) => setOpen(open === k ? null : k)
+  const detail = {
+    shock: { tag: 'The shock', text: fields.fShock },
+    dm: { tag: `${dm} — the decision taken`, text: fields.fDecision },
+    rr: { tag: `${rr} — the risk raised`, text: fields.fRisk },
+    out: { tag: 'The real outcome', text: fields.fOutcome },
+  }[open]
+  const Box = ({ k, cls, children }) => (
+    <button type="button" className={`fork-node ${cls}${open === k ? ' on' : ''}`} onClick={() => toggle(k)} aria-pressed={open === k}>{children}</button>
+  )
+  return (
+    <div className="fork">
+      <Box k="shock" cls="shock">The shock</Box>
+      <div className="fork-stem" />
+      <div className="fork-branches">
+        <div className="fork-col"><Box k="dm" cls="dm"><span className="fork-tag">Decision</span>{dm}</Box></div>
+        <div className="fork-col"><Box k="rr" cls="rr"><span className="fork-tag">Risk raised</span>{rr}</Box></div>
+      </div>
+      <div className="fork-stem" />
+      <Box k="out" cls="out">Real outcome</Box>
+      <div className="fork-hint">{open ? '' : 'Click any box to read what happened.'}</div>
+      {detail && (
+        <div className="fork-detail">
+          <div className="fork-detail-tag">{detail.tag}</div>
+          {detail.text.trim() || 'Not given.'}
+        </div>
+      )}
     </div>
   )
 }
@@ -316,39 +369,53 @@ function CastCard({ color, name, roleLabel, promptText, imageState, onGenerateIm
         <div className="cast-name">{name}</div>
         <div className="cast-role">{roleLabel}</div>
       </div>
+      {imageState?.dataUrl && <img src={imageState.dataUrl} alt={`${name} reference`} className="cast-image" />}
       {promptText && (
         <>
-          <button type="button" className="ghost small prompt-btn" onClick={onCopyPrompt}>
-            {copied ? 'Copied — paste into Gemini/DALL·E/etc.' : 'Copy character prompt'}
-          </button>
           <button type="button" className="ghost small prompt-btn" onClick={onGenerateImage} disabled={imageState?.busy}>
-            {imageState?.busy ? 'Generating…' : 'Generate reference image'}
+            {imageState?.busy ? 'Generating…' : imageState?.dataUrl ? 'Regenerate reference image' : 'Generate reference image'}
+          </button>
+          <button type="button" className="ghost small prompt-btn" onClick={onCopyPrompt}>
+            {copied ? 'Copied — paste into any image generator' : 'Copy character prompt'}
           </button>
           {imageState?.error && <div className="error-box" style={{ width: '100%' }}>{imageState.error}</div>}
-          {imageState?.dataUrl && (
-            <img src={imageState.dataUrl} alt={`${name} reference`} className="cast-image" />
-          )}
         </>
       )}
     </div>
   )
 }
 
+const CASE_TABS = [
+  ['storyboard', 'Storyboard'],
+  ['flow', 'Flowcharts'],
+  ['cast', 'Cast & scenes'],
+  ['facts', 'Case facts'],
+]
+// Beats drawn as a diagram instead of an illustration.
+const DIAGRAM_BEATS = [1, 4]
+
 function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpenLearner, regenAll, busy, status, error }) {
-  const [editingNode, setEditingNode] = useState(null)
+  const [tab, setTab] = useState('storyboard')
+  const [selectedNode, setSelectedNode] = useState(null)
   const [editingPanel, setEditingPanel] = useState(null)
   const [panelBusy, setPanelBusy] = useState(null)
   const [panelError, setPanelError] = useState('')
   const [copied, setCopied] = useState(false)
   const [copiedChar, setCopiedChar] = useState(null)
   const [images, setImages] = useState({ dm: null, rr: null }) // { busy, error, dataUrl }
+  const [panelImages, setPanelImages] = useState({}) // index -> { busy, error, dataUrl }
+  const [bulk, setBulk] = useState(null) // { done, total }
 
-  const handleEditNode = (i, lines) => setEditingNode({ index: i, value: lines[i] })
-  const saveNode = () => {
+  const dm = fields.fDecisionMaker.trim() || 'Decision maker'
+  const rr = fields.fRiskRaiser.trim() || 'Risk raiser'
+  const dmPrompt = characterPrompt(dm, 'makes and defends the decision', fields.fTitle, fields.fDate)
+  const rrPrompt = characterPrompt(rr, 'raises the overlooked risk', fields.fTitle, fields.fDate)
+  const nodeLines = parseNodeLines(fields.fNodes)
+
+  const saveNode = (index, label, desc) => {
     const lines = parseNodeLines(fields.fNodes)
-    lines[editingNode.index] = editingNode.value.trim()
+    lines[index] = desc.trim() ? `${label.trim()}: ${desc.trim()}` : label.trim()
     setField('fNodes', lines.join('\n'))
-    setEditingNode(null)
   }
 
   const redoPanel = async (i) => {
@@ -361,6 +428,7 @@ function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpe
       const next = [...scriptBeats]
       next[i] = { title: scriptBeats[i].title, body: newBeat.body }
       setScriptBeats(next)
+      if (result.warnings?.length) setPanelError(`Check this panel against your fields: ${result.warnings.join('; ')}.`)
     } catch (e) {
       setPanelError(e.message || 'Could not redo this panel. Try again.')
     } finally {
@@ -380,11 +448,6 @@ function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpe
     try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch {}
   }
 
-  const dm = fields.fDecisionMaker.trim() || 'Decision maker'
-  const rr = fields.fRiskRaiser.trim() || 'Risk raiser'
-  const dmPrompt = characterPrompt(dm, 'makes and defends the decision', fields.fTitle, fields.fDate)
-  const rrPrompt = characterPrompt(rr, 'raises the overlooked risk', fields.fTitle, fields.fDate)
-
   const copyPrompt = async (key, text) => {
     try { await navigator.clipboard.writeText(text); setCopiedChar(key); setTimeout(() => setCopiedChar(null), 2000) } catch {}
   }
@@ -399,96 +462,184 @@ function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpe
     }
   }
 
+  const generatePanelImage = async (i) => {
+    const prev = panelImages[i]?.dataUrl
+    setPanelImages((s) => ({ ...s, [i]: { busy: true, error: '', dataUrl: prev } }))
+    try {
+      const result = await callImageApi({
+        scene: { title: scriptBeats[i].title, body: scriptBeats[i].body },
+        caseTitle: fields.fTitle, date: fields.fDate, cast: [dm, rr],
+      })
+      setPanelImages((s) => ({ ...s, [i]: { busy: false, error: '', dataUrl: `data:${result.mimeType};base64,${result.data}` } }))
+    } catch (e) {
+      setPanelImages((s) => ({ ...s, [i]: { busy: false, error: e.message || 'Could not generate an image.', dataUrl: prev } }))
+    }
+  }
+
+  const generateAll = async () => {
+    const panelIdx = scriptBeats.map((_, i) => i).filter((i) => !DIAGRAM_BEATS.includes(i))
+    const total = panelIdx.length + 2
+    let done = 0
+    setBulk({ done, total })
+    const tick = () => setBulk({ done: ++done, total })
+    await generateImage('dm', dmPrompt); tick()
+    await generateImage('rr', rrPrompt); tick()
+    for (const i of panelIdx) { await generatePanelImage(i); tick() }
+    setBulk(null)
+  }
+
   const sceneChars = [
     'Narrator only', 'No characters — diagram panel', 'Narrator only',
     `${shortLabel(dm)} + ${shortLabel(rr)}`, 'Narrator, direct to reader', 'Narrator only', 'Narrator only',
   ]
+  const anyBusy = bulk !== null || Object.values(panelImages).some((p) => p?.busy) || images.dm?.busy || images.rr?.busy
+
+  const castCards = (
+    <div className="cast-grid">
+      <CastCard color="var(--disruption)" name={dm} roleLabel="Speaking role — makes the call" promptText={dmPrompt}
+        imageState={images.dm} copied={copiedChar === 'dm'}
+        onCopyPrompt={() => copyPrompt('dm', dmPrompt)} onGenerateImage={() => generateImage('dm', dmPrompt)} />
+      <CastCard color="var(--improvement)" name={rr} roleLabel="Speaking role — raises the risk" promptText={rrPrompt}
+        imageState={images.rr} copied={copiedChar === 'rr'}
+        onCopyPrompt={() => copyPrompt('rr', rrPrompt)} onGenerateImage={() => generateImage('rr', rrPrompt)} />
+      <div className="cast-card">
+        <div className="cast-avatar" style={{ background: 'var(--muted)' }}>N</div>
+        <div className="cast-info"><div className="cast-name">Narrator</div><div className="cast-role">Unseen voice — captions only, no art needed</div></div>
+      </div>
+    </div>
+  )
 
   return (
-    <div className="wrap">
+    <div className="wrap wide">
       <div className="case-topbar"><button type="button" className="back-link" onClick={onBack}>← Back to fields</button></div>
 
-      <div className="case-header">
-        <div className="two-col">
-          <div><label className="field-label">Case title</label><input type="text" value={fields.fTitle} onChange={(e) => setField('fTitle', e.target.value)} /></div>
-          <div><label className="field-label">Date &amp; location</label><input type="text" value={fields.fDate} onChange={(e) => setField('fDate', e.target.value)} /></div>
-        </div>
+      <div className="case-hero">
+        <div className="eyebrow">Case storyboard</div>
+        <input type="text" className="case-title-input" aria-label="Case title" value={fields.fTitle} onChange={(e) => setField('fTitle', e.target.value)} />
+        <input type="text" className="case-date-input" aria-label="Date and location" value={fields.fDate} onChange={(e) => setField('fDate', e.target.value)} />
       </div>
 
-      <div className="section-label">Chain — click a node to edit it</div>
-      {editingNode ? (
-        <div className="flow-row">
-          <textarea autoFocus className="flow-node" style={{ minHeight: 56, fontSize: 12 }} value={editingNode.value}
-            onChange={(e) => setEditingNode({ ...editingNode, value: e.target.value })} onBlur={saveNode} />
-        </div>
-      ) : (
-        <FlowRow fields={fields} editable onEditNode={handleEditNode} />
+      <div className="tabbar" role="tablist">
+        {CASE_TABS.map(([id, label]) => (
+          <button key={id} type="button" role="tab" aria-selected={tab === id} className={`tab${tab === id ? ' active' : ''}`} onClick={() => setTab(id)}>{label}</button>
+        ))}
+      </div>
+
+      {tab === 'storyboard' && (
+        <>
+          <div className="bulk-bar">
+            <div>
+              <div className="bulk-title">Reference images &amp; illustrations</div>
+              <div className="bulk-sub">{bulk ? `Drawing… ${bulk.done} of ${bulk.total} done` : 'Draw both characters and every story panel in one go, or use the buttons on each panel.'}</div>
+            </div>
+            <button type="button" className="primary" onClick={generateAll} disabled={anyBusy}>{bulk ? 'Drawing…' : 'Generate all images'}</button>
+          </div>
+          {bulk && <div className="bulk-progress"><div style={{ width: `${(bulk.done / bulk.total) * 100}%` }} /></div>}
+
+          <div className="section-label">Cast — reference images</div>
+          {castCards}
+
+          <div className="section-label storyboard-label">Storyboard</div>
+          <div className="board">
+            {scriptBeats.map((beat, i) => {
+              const img = panelImages[i]
+              return (
+                <div className={`board-panel${i === 1 || i === 4 ? ' full' : ''}`} style={{ '--panel-accent': `var(${PANEL_ACCENTS[i % PANEL_ACCENTS.length]})` }} key={i}>
+                  <div className="panel-card">
+                    <div className="panel-num-badge">#{i + 1}</div>
+                    <div className="panel-title">{beat.title}</div>
+
+                    {i === 1 && <div className="sketch-box diagram"><FlowRow fields={fields} shockText={fields.fShock} /><span className="sketch-label">{SKETCH_LABELS[i]}</span></div>}
+                    {i === 4 && <div className="sketch-box diagram"><DecisionFork fields={fields} /></div>}
+                    {!DIAGRAM_BEATS.includes(i) && (
+                      img?.dataUrl
+                        ? <img src={img.dataUrl} alt={`Illustration for ${beat.title}`} className="panel-image" />
+                        : (
+                          <div className="panel-placeholder">
+                            <div dangerouslySetInnerHTML={{ __html: SKETCH_SVGS[i] || '' }} />
+                            <span className="sketch-label">{img?.busy ? 'Drawing the scene…' : SKETCH_LABELS[i]}</span>
+                          </div>
+                        )
+                    )}
+                    {img?.error && <div className="error-box" style={{ marginBottom: 10 }}>{img.error}</div>}
+
+                    {editingPanel === i ? (
+                      <textarea autoFocus className="panel-edit-area" defaultValue={beat.body.trim()} onBlur={(e) => saveEditedPanel(i, e.target.value)} />
+                    ) : (
+                      <div className="panel-body" style={{ cursor: 'text' }} onClick={() => setEditingPanel(i)}>{renderBeatBody(beat.body)}</div>
+                    )}
+                    {panelBusy === i && <div className="panel-busy-note">Redoing this panel…</div>}
+                    <div className="panel-actions">
+                      {!DIAGRAM_BEATS.includes(i) && (
+                        <button type="button" className="small primary-soft" disabled={img?.busy || bulk !== null} onClick={() => generatePanelImage(i)}>
+                          {img?.busy ? 'Drawing…' : img?.dataUrl ? 'Redraw illustration' : 'Generate illustration'}
+                        </button>
+                      )}
+                      <button type="button" className="ghost small" onClick={() => setEditingPanel(i)}>Edit text</button>
+                      <button type="button" className="ghost small" disabled={panelBusy !== null} onClick={() => redoPanel(i)}>Redo this panel</button>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </>
       )}
 
-      <div className="section-label">Case facts — click any field to edit it directly</div>
-      <div className="facts-grid">
-        <div className="fact-card"><div className="fact-label">Decision</div><AutoGrowTextarea value={fields.fDecision} onChange={(e) => setField('fDecision', e.target.value)} /></div>
-        <div className="fact-card"><div className="fact-label">Decision maker</div><input type="text" value={fields.fDecisionMaker} onChange={(e) => setField('fDecisionMaker', e.target.value)} /></div>
-        <div className="fact-card"><div className="fact-label">Risk / overlooked trade-off</div><AutoGrowTextarea value={fields.fRisk} onChange={(e) => setField('fRisk', e.target.value)} /></div>
-        <div className="fact-card"><div className="fact-label">Risk raiser</div><input type="text" value={fields.fRiskRaiser} onChange={(e) => setField('fRiskRaiser', e.target.value)} /></div>
-        <div className="fact-card"><div className="fact-label">Outcome</div><AutoGrowTextarea value={fields.fOutcome} onChange={(e) => setField('fOutcome', e.target.value)} /></div>
-        <div className="fact-card"><div className="fact-label">Lesson fact</div><AutoGrowTextarea value={fields.fLesson} onChange={(e) => setField('fLesson', e.target.value)} /></div>
-      </div>
-
-      <div className="section-label">Cast &amp; scene list — what an illustrator needs to know</div>
-      <div className="cast-grid">
-        <CastCard color="var(--disruption)" name={dm} roleLabel="Speaking role — makes the call" promptText={dmPrompt}
-          imageState={images.dm} copied={copiedChar === 'dm'}
-          onCopyPrompt={() => copyPrompt('dm', dmPrompt)} onGenerateImage={() => generateImage('dm', dmPrompt)} />
-        <CastCard color="var(--improvement)" name={rr} roleLabel="Speaking role — raises the risk" promptText={rrPrompt}
-          imageState={images.rr} copied={copiedChar === 'rr'}
-          onCopyPrompt={() => copyPrompt('rr', rrPrompt)} onGenerateImage={() => generateImage('rr', rrPrompt)} />
-        <div className="cast-card">
-          <div className="cast-avatar" style={{ background: 'var(--muted)' }}>N</div>
-          <div className="cast-info"><div className="cast-name">Narrator</div><div className="cast-role">Unseen voice — captions only, no art needed</div></div>
-        </div>
-      </div>
-
-      <div className="scene-list">
-        {scriptBeats.map((beat, i) => (
-          <div className="scene-row" key={i}>
-            <div className="scene-panel">#{i + 1}</div>
-            <div><div className="scene-meta">{SKETCH_LABELS[i]}</div><div className="scene-chars">{sceneChars[i]}</div></div>
-            <div>{firstSentence(beat.body)}</div>
-          </div>
-        ))}
-      </div>
-
-      <div className="section-label storyboard-label">Storyboard</div>
-      <div className="panel-grid">
-        {scriptBeats.map((beat, i) => (
-          <div className="storyboard-step" style={{ '--panel-accent': `var(${PANEL_ACCENTS[i % PANEL_ACCENTS.length]})` }} key={i}>
-            <div className="panel-card">
-              <div className="panel-num-badge">#{i + 1}</div>
-              <div className="panel-title">{beat.title}</div>
-              <div
-                className={i === 4 ? 'sketch-box diagram' : 'sketch-box'}
-                dangerouslySetInnerHTML={{
-                  __html: `${i === 4 ? buildDecisionDiagram(dm, rr) : SKETCH_SVGS[i]}<span class="sketch-label">${escapeHtml(SKETCH_LABELS[i])}</span>`,
-                }}
-              />
-              {editingPanel === i ? (
-                <textarea autoFocus className="panel-edit-area" defaultValue={beat.body.trim()}
-                  onBlur={(e) => saveEditedPanel(i, e.target.value)} />
-              ) : (
-                <div className="panel-body" style={{ cursor: 'text' }} onClick={() => setEditingPanel(i)}>{renderBeatBody(beat.body)}</div>
-              )}
-              {panelBusy === i && <div className="panel-busy-note">Redoing this panel…</div>}
-              <div className="panel-actions">
-                <button type="button" className="ghost small" onClick={() => setEditingPanel(i)}>Edit text</button>
-                <button type="button" className="ghost small" disabled={panelBusy !== null} onClick={() => redoPanel(i)}>Redo this panel</button>
+      {tab === 'flow' && (
+        <>
+          <div className="section-label">Supply chain — click a node to read or edit it</div>
+          <div className="legend"><span className="legend-dot hit" /> Mentioned in the shock</div>
+          <FlowRow fields={fields} onSelect={setSelectedNode} selected={selectedNode} shockText={fields.fShock} />
+          {selectedNode !== null && nodeLines[selectedNode] !== undefined && (() => {
+            const { label, desc } = splitNodeLine(nodeLines[selectedNode])
+            return (
+              <div className="node-editor">
+                <label className="field-label">Node name</label>
+                <input type="text" value={label} onChange={(e) => saveNode(selectedNode, e.target.value, desc)} />
+                <label className="field-label" style={{ marginTop: 10 }}>What it does</label>
+                <AutoGrowTextarea value={desc} onChange={(e) => saveNode(selectedNode, label, e.target.value)} />
               </div>
-            </div>
-          </div>
-        ))}
-      </div>
+            )
+          })()}
 
-      <div className="controls" style={{ marginTop: 24 }}>
+          <div className="section-label">Decision flow — click a box to read it</div>
+          <div className="fork-wrap"><DecisionFork fields={fields} /></div>
+        </>
+      )}
+
+      {tab === 'cast' && (
+        <>
+          <div className="section-label">Cast — what an illustrator needs to know</div>
+          {castCards}
+          <div className="section-label">Scene list</div>
+          <div className="scene-list">
+            {scriptBeats.map((beat, i) => (
+              <div className="scene-row" key={i}>
+                <div className="scene-panel">#{i + 1}</div>
+                <div><div className="scene-meta">{SKETCH_LABELS[i]}</div><div className="scene-chars">{sceneChars[i]}</div></div>
+                <div>{firstSentence(beat.body)}</div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {tab === 'facts' && (
+        <>
+          <div className="section-label">Case facts — click any field to edit it directly</div>
+          <div className="facts-grid">
+            <div className="fact-card"><div className="fact-label">Decision</div><AutoGrowTextarea value={fields.fDecision} onChange={(e) => setField('fDecision', e.target.value)} /></div>
+            <div className="fact-card"><div className="fact-label">Decision maker</div><input type="text" value={fields.fDecisionMaker} onChange={(e) => setField('fDecisionMaker', e.target.value)} /></div>
+            <div className="fact-card"><div className="fact-label">Risk / overlooked trade-off</div><AutoGrowTextarea value={fields.fRisk} onChange={(e) => setField('fRisk', e.target.value)} /></div>
+            <div className="fact-card"><div className="fact-label">Risk raiser</div><input type="text" value={fields.fRiskRaiser} onChange={(e) => setField('fRiskRaiser', e.target.value)} /></div>
+            <div className="fact-card"><div className="fact-label">Outcome</div><AutoGrowTextarea value={fields.fOutcome} onChange={(e) => setField('fOutcome', e.target.value)} /></div>
+            <div className="fact-card"><div className="fact-label">Lesson fact</div><AutoGrowTextarea value={fields.fLesson} onChange={(e) => setField('fLesson', e.target.value)} /></div>
+          </div>
+        </>
+      )}
+
+      <div className="controls" style={{ marginTop: 28 }}>
         <button type="button" className="primary" onClick={onOpenLearner}>Preview as learner page →</button>
         <button type="button" className="ghost" onClick={regenAll} disabled={busy}>Regenerate entire script</button>
         <button type="button" className="ghost" onClick={copyScript}>{copied ? 'Copied' : 'Copy full script'}</button>
@@ -588,7 +739,7 @@ function LearnerPreview({ fields, scriptBeats, onBack }) {
 
 // ---------- App ----------
 
-export default function App() {
+function Tool() {
   const [fields, setFields] = useState(EMPTY_FIELDS)
   const [view, setView] = useState('form') // 'form' | 'case' | 'learner'
   const [scriptBeats, setScriptBeats] = useState(null)
@@ -608,7 +759,8 @@ export default function App() {
     try {
       const result = await callApi(fields)
       setScriptBeats(parseBeats(result.text))
-      setStatus(result.truncated ? 'Done — cut short, try trimming a field.' : 'Done.')
+      const warn = result.warnings?.length ? ` Check against your fields: ${result.warnings.join('; ')}.` : ''
+      setStatus((result.truncated ? 'Done — cut short, try trimming a field.' : 'Done.') + warn)
       return true
     } catch (e) {
       setError(e.message || 'Something went wrong generating the script. Try again.')
@@ -658,5 +810,62 @@ export default function App() {
       scriptBeats={scriptBeats} onOpenCase={openCase}
       onCopy={copyScript} copied={copied}
     />
+  )
+}
+
+// ---------- Password gate ----------
+
+async function checkPassword() {
+  const res = await fetch('/api/auth', { method: 'POST', headers: apiHeaders(), body: '{}' })
+  const body = await res.json().catch(() => ({}))
+  return { ok: res.ok, status: res.status, error: body.error }
+}
+
+export default function App() {
+  const [gate, setGate] = useState('checking') // 'checking' | 'locked' | 'open' | 'error'
+  const [input, setInput] = useState('')
+  const [message, setMessage] = useState('')
+  const [working, setWorking] = useState(false)
+
+  useEffect(() => {
+    checkPassword()
+      .then((r) => {
+        if (r.ok) setGate('open')
+        else if (r.status === 401) setGate('locked')
+        else { setMessage(r.error || `Server problem (${r.status}).`); setGate('error') }
+      })
+      .catch(() => { setMessage('Could not reach the server.'); setGate('error') })
+  }, [])
+
+  const unlock = async (e) => {
+    e.preventDefault()
+    setWorking(true); setMessage('')
+    setPassword(input)
+    try {
+      const r = await checkPassword()
+      if (r.ok) setGate('open')
+      else setMessage(r.status === 401 ? 'Wrong password.' : r.error || 'Could not check the password.')
+    } catch { setMessage('Could not reach the server.') }
+    setWorking(false)
+  }
+
+  if (gate === 'open') return <Tool />
+  if (gate === 'checking') return <div className="wrap narrow"><p className="status">Loading…</p></div>
+  if (gate === 'error') return <div className="wrap narrow"><div className="error-box">{message}</div></div>
+  return (
+    <div className="wrap narrow">
+      <div className="hero-band">
+        <div className="eyebrow">Private tool</div>
+        <h1>Enter the password</h1>
+        <p className="deck">This tool uses paid AI services, so access is limited. Ask the owner for the password.</p>
+      </div>
+      <form onSubmit={unlock} className="card" style={{ paddingBottom: 22 }}>
+        <label className="field-label" htmlFor="pw">Password</label>
+        <input id="pw" type="password" autoFocus autoComplete="current-password" value={input} onChange={(e) => setInput(e.target.value)}
+          style={{ width: '100%', padding: '11px 13px', borderRadius: 10, border: '1.5px solid var(--hairline)', background: 'var(--canvas)', color: 'var(--ink)', fontSize: '0.95rem' }} />
+        <div className="controls"><button type="submit" className="primary" disabled={working || !input}>{working ? 'Checking…' : 'Unlock'}</button></div>
+        {message && <div className="error-box">{message}</div>}
+      </form>
+    </div>
   )
 }

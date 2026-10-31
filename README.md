@@ -39,21 +39,20 @@ dev server (or a deploy) to run.
 
 ## Deploy to Vercel
 
-1. Get an API key from https://console.anthropic.com (requires billing set
-   up — this key is what gets charged every time someone clicks Generate
-   or Redo this panel).
-2. (Optional, for reference images) get a key from
-   https://aistudio.google.com — separate provider, separate billing.
-   The tool works fully without this; only the image buttons need it.
-3. Push this folder to a GitHub repo (or skip GitHub and run `vercel` from
+1. Get a free Gemini key from https://aistudio.google.com — it powers both the script and the images. (To use Claude instead, set `SCRIPT_PROVIDER=anthropic` and `ANTHROPIC_API_KEY`; Anthropic needs billing set
+   up.)
+2. Push this folder to a GitHub repo (or skip GitHub and run `vercel` from
    inside this folder to deploy straight from your machine).
-4. On vercel.com: **Add New → Project**, import the repo. Vercel
+3. On vercel.com: **Add New → Project**, import the repo. Vercel
    auto-detects Vite; no build settings need to change.
-5. Before the first deploy finishes, go to **Project Settings →
-   Environment Variables** and add `ANTHROPIC_API_KEY` (required) and
-   `GEMINI_API_KEY` (optional), each for Production (and Preview if you
-   want preview deploys to also work).
-6. Deploy. Vercel builds the frontend to `dist/` and automatically turns
+4. Before the first deploy finishes, go to **Project Settings →
+   Environment Variables** and add (Production, and Preview if you want
+   preview deploys to work), marking each as **Sensitive**:
+   - `APP_PASSWORD` — optional; if set, users must enter it to use the tool
+   - `GEMINI_API_KEY` — script generation
+   - `IMAGE_PROVIDER=cloudflare`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` — illustrations
+   Never put keys in the code or commit `.env`.
+5. Deploy. Vercel builds the frontend to `dist/` and automatically turns
    `api/generate.js` and `api/generate-image.js` into serverless
    functions at `/api/generate` and `/api/generate-image`.
 
