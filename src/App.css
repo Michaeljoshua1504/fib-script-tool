@@ -283,4 +283,41 @@ button.primary-soft:hover { background: #33474C; }
 .fork-detail-tag { font-family: "Space Grotesk", sans-serif; font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 6px; }
 @media (max-width: 480px) { .fork-node { min-width: 0; padding: 10px 12px; font-size: 0.85rem; } }
 
+
+/* ---------- storyboard reader + interaction ---------- */
+.bulk-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.panel-body { font-size: 14px; }
+.panel-actions button.small { transition: transform .1s ease; }
+.panel-actions button.small:hover { transform: translateY(-1px); }
+.board-panel .panel-card { transition: transform .15s ease, box-shadow .15s ease; }
+.board-panel .panel-card:hover { transform: translate(-1px, -1px); box-shadow: 5px 5px 0 var(--ink); }
+.panel-image { cursor: zoom-in; }
+
+.player { position: fixed; inset: 0; z-index: 100; background: var(--canvas); display: flex; flex-direction: column; overflow-y: auto; }
+.player-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 28px; border-bottom: 1.5px solid var(--hairline); background: var(--surface); position: sticky; top: 0; z-index: 2; }
+.player-count { font-family: "Space Grotesk", sans-serif; font-weight: 700; font-size: 0.95rem; white-space: nowrap; }
+.player-dots { display: flex; gap: 8px; flex: 1; justify-content: center; }
+.player-dot { width: 34px; height: 8px; padding: 0; border-radius: 4px; border: none; background: var(--hairline-strong); }
+.player-dot.done { background: var(--improvement); }
+.player-dot.current { background: var(--accent-yellow); }
+.player-dot:hover { background: var(--ink); border: none; }
+.player-stage { flex: 1; width: 100%; max-width: 920px; margin: 0 auto; padding: 28px 24px 20px; cursor: pointer; }
+.player-title { font-family: "Space Grotesk", sans-serif; font-weight: 700; font-size: 1.5rem; text-transform: uppercase; letter-spacing: 0.01em; padding-bottom: 12px; margin-bottom: 18px; border-bottom: 5px solid var(--panel-accent, var(--ink)); }
+.player-media { background: var(--parchment); border: 2.5px solid var(--ink); border-radius: 8px; box-shadow: 4px 4px 0 var(--ink); padding: 14px; display: flex; justify-content: center; margin-bottom: 22px; cursor: default; }
+.player-media img { max-width: 100%; max-height: 52vh; object-fit: contain; border-radius: 4px; display: block; }
+.player-media .fork, .player-media .flow-row { width: 100%; }
+.player-noimg { display: flex; align-items: center; gap: 14px; padding: 36px 10px; color: var(--muted); font-size: 0.9rem; }
+.player-noimg svg { width: 52px; height: 52px; color: var(--ink); }
+.player-text { display: flex; flex-direction: column; gap: 14px; }
+.player-narration { background: var(--bubble); border: 2px solid var(--ink); border-radius: 4px; padding: 14px 18px; margin: 0; font-style: italic; font-size: 1.05rem; line-height: 1.6; box-shadow: 3px 3px 0 rgba(29,43,46,0.14); }
+.player-li { display: inline-block; background: var(--improvement-tint); color: var(--improvement); border: 1.5px solid var(--improvement); border-radius: 100px; padding: 4px 12px; font-size: 0.85rem; font-weight: 600; margin-right: 6px; }
+.bubble-row { display: flex; align-items: flex-end; gap: 12px; animation: bubble-in .25s ease; }
+.bubble-row.right { flex-direction: row-reverse; }
+.bubble-avatar { width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-family: "Space Grotesk", sans-serif; font-weight: 700; font-size: 0.85rem; }
+.bubble { max-width: 72%; background: var(--bubble); border: 2px solid var(--ink); border-radius: 18px; padding: 12px 18px; font-size: 1.05rem; line-height: 1.5; box-shadow: 3px 3px 0 rgba(29,43,46,0.14); }
+.bubble-speaker { display: block; font-family: "Space Grotesk", sans-serif; font-weight: 700; font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 3px; }
+@keyframes bubble-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.player-hint { text-align: center; font-size: 0.85rem; color: var(--muted); margin-top: 22px; }
+.player-nav { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 28px; border-top: 1.5px solid var(--hairline); background: var(--surface); position: sticky; bottom: 0; }
+.player-keys { font-size: 0.8rem; color: var(--muted); }
 }

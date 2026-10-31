@@ -24,7 +24,7 @@ const BEAT_DEFS = [
   { num: 7, title: 'Lesson line', rule: "if LESSON FACT is given, state it directly as the closing line, rephrased for punch but adding no claim, cause, ranking, or consequence beyond what LESSON FACT itself says; otherwise draw one short closing line stated only from facts in OUTCOME, with the same restriction. Never add a causal or superlative claim (\"this was the one that cost the most\", \"this is why it failed\") unless that exact claim is stated in the given fields." },
 ];
 
-const SYSTEM = `You are a meticulous scriptwriter for the "Future Industry in a Box" project at Hof University, which teaches supply-chain concepts through short illustrated case comics. You work only from the case data you are given. Accuracy matters more than flair: you never add a number, date, name, cause, ranking, or outcome that is not in the given fields, and you never change a figure. You follow the requested output format exactly, with no preamble and no closing remarks.`;
+const SYSTEM = `You are a meticulous scriptwriter for the "Future Industry in a Box" project at Hof University, which teaches supply-chain concepts through short illustrated case comics. You work only from the case data you are given. Accuracy matters more than flair: you never add a number, date, name, cause, ranking, or outcome that is not in the given fields, and you never change a figure. You follow the requested output format exactly, with no preamble and no closing remarks. You ALWAYS write the entire script in English — narration, dialogue, and headings — even if some or all of the case data is in another language; translate it into English and keep proper nouns (company and place names) as given.`;
 
 const FORMAT_EXAMPLE = `FORMAT EXAMPLE (shape only — do not reuse its content):
 ## 1. Cold open
@@ -64,6 +64,7 @@ function buildFullPrompt(fields) {
 ${beatList}
 
 STRICT RULES:
+- Write everything in English only (translate the case data if it is not in English; keep names of companies and places).
 - Use only the field contents given below. Never invent a number, date, name, or outcome not present in them. Keep every number, currency amount, percentage, and date exactly as written.
 - If a required field is empty and the beat truly cannot be written without it, write exactly: [missing: what's needed] for that beat only — never for beat 4's in-character reply line, which may be dramatized wording as long as it states no invented fact.
 - Dialogue lines: short and punchy, comic style, under 20 words each, 2–4 lines per panel maximum.
@@ -84,6 +85,7 @@ function buildBeatPrompt(fields, beatNum) {
 ${def.num}. ${def.title} — ${def.rule}
 
 STRICT RULES:
+- Write everything in English only (translate the case data if it is not in English; keep names of companies and places).
 - Use only the field contents given below. Never invent a number, date, name, or outcome not present in them. Keep every number, currency amount, percentage, and date exactly as written.
 - If this beat truly cannot be written without a missing field, write exactly: [missing: what's needed]${missingNote}
 - Dialogue lines (if any): short and punchy, comic style, under 20 words each, 2–4 lines per panel maximum.
@@ -138,10 +140,23 @@ function numberTokens(s) {
   return (s.match(/\d[\d,.]*\d|\d/g) || []).map((t) => t.replace(/,/g, '').replace(/\.$/, ''));
 }
 
+const EN_WORDS = new Set('the and of to in is was for that on with it at by his her their they we you are were has have had be as from this which an'.split(' '));
+const OTHER_WORDS = new Set('der die das und nicht ist wir ein eine mit von zu den im auf für sie es sich auch war wird le la les des et est pour que dans une el los las y por con una del se su lo nous vous ils sont avec'.split(' '));
+
+/** Cheap check that the text is English: counts common English vs German/French/Spanish function words. */
+function looksNonEnglish(text) {
+  const words = text.toLowerCase().match(/[a-zäöüßéèàçñ]+/g) || [];
+  let en = 0, other = 0;
+  for (const w of words) { if (EN_WORDS.has(w)) en++; else if (OTHER_WORDS.has(w)) other++; }
+  return other >= 3 && other > en * 0.5;
+}
+
 /** Returns a list of human-readable problems with the model's output. */
 function validate(text, fields, beatNum) {
   const problems = [];
   const body = text.split('\n').filter((l) => !l.trim().startsWith('## ')).join('\n');
+
+  if (looksNonEnglish(body)) problems.push('the script is not written in English — rewrite everything in English');
 
   const headings = (text.match(/^## .+$/gm) || []).length;
   if (!beatNum && headings !== 7) problems.push(`expected 7 "## " beat headings but found ${headings}`);

@@ -222,13 +222,14 @@ async function callImageApi(payload) {
 }
 
 /** Textarea that grows to fit its content instead of scrolling internally. */
-function AutoGrowTextarea({ value, onChange, className }) {
+function AutoGrowTextarea({ value, onChange, className, ...rest }) {
   const ref = useRef(null)
   const grow = (el) => { if (el) { el.style.height = 'auto'; el.style.height = el.scrollHeight + 'px' } }
   useEffect(() => { document.fonts?.ready.then(() => grow(ref.current)) }, [])
   return (
     <textarea
       ref={(el) => { ref.current = el; grow(el) }}
+      {...rest}
       className={className}
       rows={1}
       value={value}
@@ -256,7 +257,7 @@ function FieldsForm({ fields, setField, onLoadExample, onGenerate, busy, error, 
             <div className="field" key={f.id}>
               <label className="field-label" htmlFor={f.id}>{f.label}</label>
               {f.type === 'textarea' ? (
-                <textarea id={f.id} value={fields[f.id]} placeholder={f.placeholder} onChange={(e) => setField(f.id, e.target.value)} />
+                <AutoGrowTextarea id={f.id} value={fields[f.id]} placeholder={f.placeholder} onChange={(e) => setField(f.id, e.target.value)} />
               ) : (
                 <input type="text" id={f.id} value={fields[f.id]} placeholder={f.placeholder} onChange={(e) => setField(f.id, e.target.value)} />
               )}
@@ -387,6 +388,108 @@ function CastCard({ color, name, roleLabel, promptText, imageState, onGenerateIm
   )
 }
 
+/** Split a beat's markdown into dialogue lines, bullets and narration. */
+function beatItems(body) {
+  const items = []
+  for (const raw of (body || '').split('\n')) {
+    const line = raw.trim()
+    if (!line) continue
+    const m = line.match(/^\*\*(.+?):\*\*\s*(.*)$/)
+    if (m) items.push({ type: 'say', speaker: m[1], text: m[2] })
+    else if (line.startsWith('- ')) items.push({ type: 'li', text: line.slice(2).replaceAll('**', '') })
+    else items.push({ type: 'text', text: line.replaceAll('**', '') })
+  }
+  return items
+}
+
+/** Full-screen reader: steps through the storyboard panel by panel, revealing dialogue one line at a time. */
+function StoryPlayer({ beats, images, fields, startIndex, onClose }) {
+  const [idx, setIdx] = useState(startIndex)
+  const items = beatItems(beats[idx].body)
+  const sayCount = items.filter((x) => x.type === 'say').length
+  const [shown, setShown] = useState(Math.min(1, sayCount))
+  const dm = (fields.fDecisionMaker || '').trim().toLowerCase()
+  const rr = (fields.fRiskRaiser || '').trim().toLowerCase()
+
+  const goto = (i, all) => {
+    const c = beatItems(beats[i].body).filter((x) => x.type === 'say').length
+    setIdx(i)
+    setShown(all ? c : Math.min(1, c))
+  }
+  const next = () => {
+    if (shown < sayCount) setShown(shown + 1)
+    else if (idx < beats.length - 1) goto(idx + 1, false)
+  }
+  const prev = () => {
+    if (shown > Math.min(1, sayCount)) setShown(shown - 1)
+    else if (idx > 0) goto(idx - 1, true)
+  }
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); next() }
+      else if (e.key === 'ArrowLeft') prev()
+      else if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
+  const img = images[idx]?.dataUrl
+  let say = 0
+  const atEnd = idx === beats.length - 1 && shown >= sayCount
+
+  return (
+    <div className="player" role="dialog" aria-label="Storyboard reader" style={{ '--panel-accent': `var(${PANEL_ACCENTS[idx % PANEL_ACCENTS.length]})` }}>
+      <div className="player-bar">
+        <div className="player-count">Panel {idx + 1} of {beats.length}</div>
+        <div className="player-dots">
+          {beats.map((_, i) => (
+            <button key={i} type="button" aria-label={`Go to panel ${i + 1}`} className={`player-dot${i === idx ? ' current' : ''}${i < idx ? ' done' : ''}`} onClick={() => goto(i, false)} />
+          ))}
+        </div>
+        <button type="button" className="ghost small" onClick={onClose}>Close ✕</button>
+      </div>
+
+      <div className="player-stage" onClick={next}>
+        <div className="player-title">{beats[idx].title}</div>
+        <div className="player-media" onClick={(e) => e.stopPropagation()}>
+          {idx === 1 && <FlowRow fields={fields} shockText={fields.fShock} />}
+          {idx === 4 && <DecisionFork fields={fields} />}
+          {!DIAGRAM_BEATS.includes(idx) && (img
+            ? <img src={img} alt={`Illustration for ${beats[idx].title}`} />
+            : <div className="player-noimg"><span dangerouslySetInnerHTML={{ __html: SKETCH_SVGS[idx] || '' }} /><span>{SKETCH_LABELS[idx]} — no illustration drawn yet</span></div>)}
+        </div>
+        <div className="player-text">
+          {items.map((it, k) => {
+            if (it.type === 'li') return idx === 1 ? null : <div className="player-li" key={k}>{it.text}</div>
+            if (it.type === 'text') return <p className="player-narration" key={k}>{it.text}</p>
+            const n = say++
+            if (n >= shown) return null
+            const right = it.speaker.trim().toLowerCase() === rr
+            const mine = it.speaker.trim().toLowerCase() === dm
+            return (
+              <div className={`bubble-row ${right ? 'right' : 'left'}`} key={k}>
+                <div className="bubble-avatar" style={{ background: right ? 'var(--improvement)' : mine ? 'var(--disruption)' : 'var(--muted)' }}>{initials(it.speaker)}</div>
+                <div className="bubble"><span className="bubble-speaker">{it.speaker}</span>{it.text}</div>
+              </div>
+            )
+          })}
+        </div>
+        {shown < sayCount && <div className="player-hint">Click anywhere or press → to reveal the next line</div>}
+      </div>
+
+      <div className="player-nav">
+        <button type="button" className="ghost" onClick={prev} disabled={idx === 0 && shown <= Math.min(1, sayCount)}>← Back</button>
+        <div className="player-keys">← → keys · Esc to close</div>
+        {atEnd
+          ? <button type="button" className="primary" onClick={onClose}>Finish</button>
+          : <button type="button" className="primary" onClick={next}>{shown < sayCount ? 'Next line →' : 'Next panel →'}</button>}
+      </div>
+    </div>
+  )
+}
+
 const CASE_TABS = [
   ['storyboard', 'Storyboard'],
   ['flow', 'Flowcharts'],
@@ -407,6 +510,9 @@ function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpe
   const [images, setImages] = useState({ dm: null, rr: null }) // { busy, error, dataUrl }
   const [panelImages, setPanelImages] = useState({}) // index -> { busy, error, dataUrl }
   const [bulk, setBulk] = useState(null) // { done, total }
+  const [editDraft, setEditDraft] = useState('')
+  const [player, setPlayer] = useState(null) // index the reader opens at, or null
+  const openEdit = (i) => { setEditDraft(scriptBeats[i].body.trim()); setEditingPanel(i) }
 
   const dm = fields.fDecisionMaker.trim() || 'Decision maker'
   const rr = fields.fRiskRaiser.trim() || 'Risk raiser'
@@ -473,8 +579,10 @@ function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpe
         caseTitle: fields.fTitle, date: fields.fDate, cast: [dm, rr],
       })
       setPanelImages((s) => ({ ...s, [i]: { busy: false, error: '', dataUrl: `data:${result.mimeType};base64,${result.data}` } }))
+      return true
     } catch (e) {
       setPanelImages((s) => ({ ...s, [i]: { busy: false, error: e.message || 'Could not generate an image.', dataUrl: prev } }))
+      return false
     }
   }
 
@@ -486,7 +594,9 @@ function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpe
     const tick = () => setBulk({ done: ++done, total })
     await generateImage('dm', dmPrompt); tick()
     await generateImage('rr', rrPrompt); tick()
-    for (const i of panelIdx) { await generatePanelImage(i); tick() }
+    const failed = []
+    for (const i of panelIdx) { if (!(await generatePanelImage(i))) failed.push(i); tick() }
+    for (const i of failed) { await new Promise((r) => setTimeout(r, 2000)); await generatePanelImage(i) } // one more try for any that failed
     setBulk(null)
   }
 
@@ -513,6 +623,7 @@ function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpe
 
   return (
     <div className="wrap wide">
+      {player !== null && <StoryPlayer beats={scriptBeats} images={panelImages} fields={fields} startIndex={player} onClose={() => setPlayer(null)} />}
       <div className="case-topbar"><button type="button" className="back-link" onClick={onBack}>← Back to fields</button></div>
 
       <div className="case-hero">
@@ -534,7 +645,10 @@ function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpe
               <div className="bulk-title">Reference images &amp; illustrations</div>
               <div className="bulk-sub">{bulk ? `Drawing… ${bulk.done} of ${bulk.total} done` : 'Draw both characters and every story panel in one go, or use the buttons on each panel.'}</div>
             </div>
-            <button type="button" className="primary" onClick={generateAll} disabled={anyBusy}>{bulk ? 'Drawing…' : 'Generate all images'}</button>
+            <div className="bulk-actions">
+              <button type="button" className="ghost" onClick={() => setPlayer(0)}>▶ Play storyboard</button>
+              <button type="button" className="primary" onClick={generateAll} disabled={anyBusy}>{bulk ? 'Drawing…' : 'Generate all images'}</button>
+            </div>
           </div>
           {bulk && <div className="bulk-progress"><div style={{ width: `${(bulk.done / bulk.total) * 100}%` }} /></div>}
 
@@ -554,7 +668,7 @@ function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpe
                     {i === 4 && <div className="sketch-box diagram"><DecisionFork fields={fields} /></div>}
                     {!DIAGRAM_BEATS.includes(i) && (
                       img?.dataUrl
-                        ? <img src={img.dataUrl} alt={`Illustration for ${beat.title}`} className="panel-image" />
+                        ? <img src={img.dataUrl} alt={`Illustration for ${beat.title}`} className="panel-image" onClick={() => setPlayer(i)} title="Click to open in the reader" />
                         : (
                           <div className="panel-placeholder">
                             <div dangerouslySetInnerHTML={{ __html: SKETCH_SVGS[i] || '' }} />
@@ -565,11 +679,11 @@ function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpe
                     {img?.error && <div className="error-box" style={{ marginBottom: 10 }}>{img.error}</div>}
 
                     {editingPanel === i ? (
-                      <textarea autoFocus className="panel-edit-area" defaultValue={beat.body.trim()} onBlur={(e) => saveEditedPanel(i, e.target.value)} />
+                      <AutoGrowTextarea autoFocus className="panel-edit-area" value={editDraft} onChange={(e) => setEditDraft(e.target.value)} onBlur={() => saveEditedPanel(i, editDraft)} />
                     ) : (
                       i === 1
                         ? <div className="panel-note">The nodes above come from your chain field. Use “Edit text” to change the written list.</div>
-                        : <div className="panel-body" style={{ cursor: 'text' }} onClick={() => setEditingPanel(i)}>{renderBeatBody(beat.body)}</div>
+                        : <div className="panel-body" style={{ cursor: 'text' }} onClick={() => openEdit(i)}>{renderBeatBody(beat.body)}</div>
                     )}
                     {panelBusy === i && <div className="panel-busy-note">Redoing this panel…</div>}
                     <div className="panel-actions">
@@ -578,7 +692,8 @@ function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpe
                           {img?.busy ? 'Drawing…' : img?.dataUrl ? 'Redraw illustration' : 'Generate illustration'}
                         </button>
                       )}
-                      <button type="button" className="ghost small" onClick={() => setEditingPanel(i)}>Edit text</button>
+                      <button type="button" className="ghost small" onClick={() => openEdit(i)}>Edit text</button>
+                      <button type="button" className="ghost small" onClick={() => setPlayer(i)}>▶ Present from here</button>
                       <button type="button" className="ghost small" disabled={panelBusy !== null} onClick={() => redoPanel(i)}>Redo this panel</button>
                     </div>
                   </div>

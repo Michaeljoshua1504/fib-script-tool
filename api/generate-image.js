@@ -36,7 +36,7 @@ PANEL TEXT:
 ${plain(scene.body)}
 ${cast?.length ? `CHARACTERS (draw as generic business people, label nothing): ${cast.join(', ')}` : ''}
 
-Rules: depict only what the panel text says — the setting, objects, and actions. Do not invent events, numbers, or outcomes. For a chain/list of companies, show a simple left-to-right flow of buildings or boxes. For a question to the reader, show two paths diverging. Never ask for text, letters, numbers, logos, or speech bubbles in the image. Output only the prompt.`;
+Rules: depict only what the panel text says — the setting, objects, and actions. Do not invent events, numbers, or outcomes. For a chain/list of companies, show a simple left-to-right flow of buildings or boxes. For a question to the reader, show two paths diverging. Never ask for text, letters, numbers, logos, or speech bubbles in the image. Write the prompt in English. Output only the prompt.`;
   try {
     const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_TEXT_MODEL}:generateContent`, {
       method: 'POST',
@@ -128,10 +128,20 @@ export default async function handler(req, res) {
       ? await sceneToPrompt({ scene: { title: String(scene.title || ''), body: scene.body }, caseTitle: String(caseTitle || ''), date: String(date || ''), cast: Array.isArray(cast) ? cast.map(String).slice(0, 4) : [] })
       : prompt;
     const provider = (process.env.IMAGE_PROVIDER || 'pollinations').toLowerCase();
-    const image = provider === 'cloudflare' ? await viaCloudflare(finalPrompt)
-      : provider === 'gemini' ? await viaGemini(finalPrompt)
-      : await viaPollinations(finalPrompt);
-    res.status(200).json({ ...image, prompt: finalPrompt });
+    const draw = (p) => provider === 'cloudflare' ? viaCloudflare(p) : provider === 'gemini' ? viaGemini(p) : viaPollinations(p);
+    let image, used = finalPrompt;
+    try {
+      image = await draw(finalPrompt);
+    } catch (err) {
+      // One retry: transient provider errors usually clear; a rejected prompt is retried in a plainer form.
+      if (!err.upstream) throw err;
+      await new Promise((r) => setTimeout(r, 1500));
+      used = hasScene
+        ? fallbackPrompt({ scene: { title: String(scene.title || ''), body: scene.body }, caseTitle: String(caseTitle || ''), date: String(date || ''), cast: [] })
+        : finalPrompt;
+      image = await draw(used);
+    }
+    res.status(200).json({ ...image, prompt: used });
   } catch (err) {
     if (err.upstream) res.status(502).json({ error: err.message, detail: err.detail });
     else res.status(500).json({ error: err.message || 'Server error generating the image.', detail: String(err) });
