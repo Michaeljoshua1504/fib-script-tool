@@ -216,14 +216,23 @@ button.small { padding: 6px 14px; font-size: 0.82rem; }
 
 /* two permanent columns: the fields flow down the page on the left; the script panel stays fixed to the top of the screen on the right */
 .wrap.workspace { max-width: 1480px; padding-top: 16px; padding-bottom: 16px; }
-.workspace .hero-band { margin: 0 0 16px; padding: 20px 22px 18px; border: 1px solid var(--hairline); border-radius: 16px; }
-.workspace .hero-band h1 { margin: 6px 0 4px; font-size: clamp(1.5rem, 2.4vw, 2rem); }
-.workspace .hero-band .deck { margin: 0; font-size: 0.95rem; max-width: 90ch; }
+.top-hero.hero-band { position: sticky; top: 0; z-index: 40; margin: 0; padding: 9px 0; border-radius: 0; border: 0; border-bottom: 1px solid var(--hairline); }
+.top-hero-inner { max-width: 1480px; margin: 0 auto; padding: 0 20px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.top-hero-title { display: flex; align-items: center; gap: 12px; }
+.top-hero-title .eyebrow { margin: 0; }
+.top-hero h1 { margin: 0; font-size: clamp(1.4rem, 2.2vw, 1.8rem); }
+.top-hero .deck { margin: 4px 0 0; font-size: 0.92rem; max-width: 95ch; }
+.top-hero-actions { display: flex; align-items: center; gap: 12px; flex: none; position: relative; }
+.theme-toggle.inline { position: static; opacity: 1; box-shadow: none; }
+.theme-toggle.inline .tt-label { display: inline; }
+.theme-toggle.inline button { padding: 6px 12px; }
+
+
 .split-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: start; }
 .split-fields .controls { margin: 0 0 16px; }
 .split-fields .controls-bottom { margin: 4px 0 0; }
 .split-fields .push-right { margin-left: auto; }
-.split-script { position: sticky; top: 16px; height: calc(100vh - 32px); height: calc(100dvh - 32px); display: flex; flex-direction: column; }
+.split-script { position: sticky; top: calc(var(--hero-h, 90px) + 16px); height: calc(100dvh - var(--hero-h, 90px) - 32px); display: flex; flex-direction: column; }
 .split-script .output { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: 0; }
 .script-body { flex: 1; min-height: 0; overflow-y: auto; padding-right: 8px; }
 .script-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--hairline); }
@@ -238,11 +247,20 @@ button.small { padding: 6px 14px; font-size: 0.82rem; }
 .script-empty p { margin: 0; max-width: 40ch; font-size: 0.95rem; line-height: 1.5; }
 .script-empty-icon { width: 52px; height: 52px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; background: var(--accent-yellow-tint); color: var(--yellow-ink); }
 .output-actions { flex: none; }
-.why { margin-top: 14px; }
+/* give the script as much room as possible: tight panel padding, actions up in the header, compact text */
+.split-script .output { padding: 14px 18px 12px; }
+.split-script .script-head { margin-bottom: 8px; padding-bottom: 10px; }
+.script-head-actions { display: flex; gap: 8px; }
+.script-head-actions button.small { padding: 6px 14px; font-size: 13px; }
+.script-body h3 { font-size: 1rem; margin: 16px 0 4px; }
+.script-body h3:first-child { margin-top: 0; }
+.script-body p, .script-body li { font-size: 0.93rem; line-height: 1.5; margin-top: 0; margin-bottom: 5px; }
+.script-body ul { margin: 0 0 4px; padding-left: 20px; }
+.why { position: static; }
 .why-btn { display: inline-flex; align-items: center; gap: 9px; padding: 9px 16px; border-radius: 100px; border: 1.5px solid var(--ink); background: var(--surface); color: var(--ink); font-size: 13.5px; font-weight: 600; animation: why-glow 2.4s ease-in-out infinite; }
 .why-btn:hover { transform: translateY(-1px); }
 .why-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--improvement); animation: why-pulse 1.6s ease-out infinite; }
-.why-note { margin-top: 12px; padding: 16px 18px; background: var(--surface); border: 1.5px solid var(--hairline-strong); border-radius: 14px; font-size: 0.92rem; line-height: 1.55; animation: why-in .18s ease-out; }
+.why-note { position: absolute; right: 0; top: calc(100% + 12px); width: min(500px, 92vw); z-index: 50; box-shadow: 0 14px 34px rgba(29,43,46,0.2); padding: 16px 18px; background: var(--surface); border: 1.5px solid var(--hairline-strong); border-radius: 14px; font-size: 0.92rem; line-height: 1.55; animation: why-in .18s ease-out; }
 .why-note h2 { font-size: 0.95rem; margin: 0 0 6px; }
 .why-note h2:not(:first-child) { margin-top: 14px; }
 .why-note p { margin: 0; }
@@ -260,6 +278,7 @@ button.small { padding: 6px 14px; font-size: 0.82rem; }
   .script-body { overflow: visible; }
 }
 &.embed .split-script { position: static; height: auto; }
+&.embed .top-hero.hero-band { position: static; }
 &.embed .script-body { overflow: visible; }
 
 

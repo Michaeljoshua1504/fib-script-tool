@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, createContext, useContext } from 'react'
 import Library from './Library.jsx'
 import { saveImages, savedForCase, downloadImage, downloadZip, fmtDateTime } from './storage.js'
 
@@ -249,14 +249,12 @@ function AutoGrowTextarea({ value, onChange, className, ...rest }) {
 // The learner-page preview is switched off for now. Set this to true to bring its button back.
 const SHOW_LEARNER_PREVIEW = false
 
-/** Animated "why was this built" button. Hover or focus shows the note; click pins it open. */
+/** Animated "why was this built" button. Pressing it shows the note; pressing it again hides it. */
 function WhyNote() {
-  const [pinned, setPinned] = useState(false)
-  const [hover, setHover] = useState(false)
-  const open = pinned || hover
+  const [open, setOpen] = useState(false)
   return (
-    <div className="why" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
-      <button type="button" className="why-btn" aria-expanded={open} onClick={() => setPinned((p) => !p)}>
+    <div className="why">
+      <button type="button" className="why-btn" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         <span className="why-dot" aria-hidden="true" />
         Get to know why we built this tool
       </button>
@@ -278,17 +276,42 @@ function WhyNote() {
   )
 }
 
+const ThemeCtx = createContext({ pref: 'system', choose: () => {}, forced: true, setInline: () => {} })
+
 function FieldsForm({ fields, setField, onLoadExample, onGenerate, busy, error, scriptBeats, stale, onOpenCase, onCopy, copied, onOpenLibrary }) {
+  const theme = useContext(ThemeCtx)
+  const pageRef = useRef(null)
+  const heroRef = useRef(null)
+  // the theme switch lives in the title section on this page, so the floating one steps aside
+  useEffect(() => { theme.setInline(true); return () => theme.setInline(false) }, [])
+  // the script panel sticks just below the title section, whatever height that ends up being
+  useEffect(() => {
+    const set = () => pageRef.current?.style.setProperty('--hero-h', `${heroRef.current.offsetHeight}px`)
+    set()
+    const ro = new ResizeObserver(set)
+    ro.observe(heroRef.current)
+    return () => ro.disconnect()
+  }, [])
   return (
-    <div className="wrap workspace">
+    <div className="form-page" ref={pageRef}>
+      <header className="hero-band top-hero" ref={heroRef}>
+        <div className="top-hero-inner">
+          <div className="top-hero-text">
+            <div className="top-hero-title">
+              <div className="eyebrow">Production tool</div>
+              <h1>Fields in. Script out.</h1>
+            </div>
+            <p className="deck">Each field feeds one beat. Fill them from the case data, then check the script beside them.</p>
+          </div>
+          <div className="top-hero-actions">
+            <WhyNote />
+            {!theme.forced && <ThemeToggle pref={theme.pref} onChoose={theme.choose} inline />}
+          </div>
+        </div>
+      </header>
+      <div className="wrap workspace">
       <div className="split-grid">
         <section className="split-col split-fields" aria-label="Case fields">
-          <div className="hero-band">
-            <div className="eyebrow">Production tool</div>
-            <h1>Fields in. Script out.</h1>
-            <p className="deck">Each field feeds one specific beat — fill them from the case's dashboard data, assign the two voices in beat 4, and the script can't mix up who argued what.</p>
-            <WhyNote />
-          </div>
           <div className="col-scroll">
             <div className="controls controls-top">
               <button type="button" className="ghost" onClick={() => onLoadExample(EXAMPLE_014)} disabled={busy}>Load FIB-014 example</button>
@@ -326,6 +349,12 @@ function FieldsForm({ fields, setField, onLoadExample, onGenerate, busy, error, 
               <span className="script-head-title">Script</span>
               {busy && <span className="stale-badge working">{scriptBeats ? 'Regenerating…' : 'Thinking…'}</span>}
               {!busy && scriptBeats && stale && <span className="stale-badge">Out of date</span>}
+              {scriptBeats && (
+                <div className="script-head-actions">
+                  <button type="button" className="ghost small" onClick={onCopy}>{copied ? 'Copied' : 'Copy script'}</button>
+                  <button type="button" className="primary small" onClick={onOpenCase}>Open case page →</button>
+                </div>
+              )}
             </div>
             {scriptBeats && stale && !busy && (
               <div className="stale-note">
@@ -346,14 +375,9 @@ function FieldsForm({ fields, setField, onLoadExample, onGenerate, busy, error, 
                 <p>{busy ? 'This usually takes a few seconds.' : 'Fill in the fields on the left, then click Generate script. The 7-beat comic script will show up in this space, right next to the fields so you can check it against them.'}</p>
               </div>
             )}
-            {scriptBeats && (
-              <div className="output-actions">
-                <button type="button" className="ghost" onClick={onCopy}>{copied ? 'Copied' : 'Copy script'}</button>
-                <button type="button" className="primary" onClick={onOpenCase}>Open case page →</button>
-              </div>
-            )}
           </div>
         </aside>
+      </div>
       </div>
     </div>
   )
@@ -1199,9 +1223,9 @@ function useTheme() {
   return { pref, resolved, choose, forced: Boolean(forced) }
 }
 
-function ThemeToggle({ pref, onChoose }) {
+function ThemeToggle({ pref, onChoose, inline }) {
   return (
-    <div className="theme-toggle" role="group" aria-label="Colour theme">
+    <div className={`theme-toggle${inline ? ' inline' : ''}`} role="group" aria-label="Colour theme">
       {THEME_OPTIONS.map(([id, icon, label]) => (
         <button key={id} type="button" aria-pressed={pref === id} title={`${label} mode`} onClick={() => onChoose(id)}>
           <span aria-hidden="true">{icon}</span><span className="tt-label">{label}</span>
@@ -1220,6 +1244,7 @@ export default function App() {
   const embed = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('embed') === '1'
   const rootRef = useRef(null)
   const theme = useTheme()
+  const [inlineToggle, setInline] = useState(false)
 
   useEffect(() => {
     if (!embed || window.parent === window) return
@@ -1232,8 +1257,10 @@ export default function App() {
 
   return (
     <div ref={rootRef} className={`fib-tool${embed ? ' embed' : ''}`} data-theme={theme.resolved}>
-      <Gate />
-      {!theme.forced && <ThemeToggle pref={theme.pref} onChoose={theme.choose} />}
+      <ThemeCtx.Provider value={{ pref: theme.pref, choose: theme.choose, forced: theme.forced, setInline }}>
+        <Gate />
+      </ThemeCtx.Provider>
+      {!theme.forced && !inlineToggle && <ThemeToggle pref={theme.pref} onChoose={theme.choose} />}
     </div>
   )
 }
