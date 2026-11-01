@@ -1029,6 +1029,27 @@ function LearnerPreview({ fields, scriptBeats, onBack }) {
   )
 }
 
+/** Floating "working on it" pill, shown while a script is being generated. */
+function GeneratingToast() {
+  const [secs, setSecs] = useState(0)
+  useEffect(() => {
+    const t0 = Date.now()
+    const id = setInterval(() => setSecs(Math.floor((Date.now() - t0) / 1000)), 500)
+    return () => clearInterval(id)
+  }, [])
+  return (
+    <div className="gen-toast" role="status" aria-live="polite">
+      <div className="gen-beats" aria-hidden="true">
+        {[0, 1, 2, 3, 4, 5, 6].map((i) => <span key={i} style={{ animationDelay: `${i * 0.18}s` }} />)}
+      </div>
+      <div className="gen-title">Generating your script<span className="gen-dots" aria-hidden="true"><i>.</i><i>.</i><i>.</i></span></div>
+      <div className="gen-sub">Writing the 7 beats, then checking them against your fields</div>
+      <div className="gen-time">{secs}s</div>
+      <div className="gen-bar" aria-hidden="true" />
+    </div>
+  )
+}
+
 // ---------- App ----------
 
 function Tool() {
@@ -1110,6 +1131,7 @@ function Tool() {
 
   if (view === 'case' && scriptBeats) {
     return (
+      <>
       <CasePage
         store={{ images, setImages, panelImages, setPanelImages }} onOpenLibrary={() => openLibrary('case')}
         fields={fields} setField={setField}
@@ -1118,6 +1140,8 @@ function Tool() {
         onOpenLearner={() => setView('learner')}
         regenAll={regenAll} busy={busy} status={status} error={error}
       />
+      {busy && <GeneratingToast />}
+      </>
     )
   }
 
@@ -1126,12 +1150,15 @@ function Tool() {
   }
 
   return (
-    <FieldsForm
-      fields={fields} setField={setField} onLoadExample={loadExample}
-      onGenerate={generateFull} busy={busy} error={error}
-      scriptBeats={scriptBeats} stale={stale} onOpenCase={openCase}
-      onCopy={copyScript} copied={copied} onOpenLibrary={() => openLibrary('form')}
-    />
+    <>
+      <FieldsForm
+        fields={fields} setField={setField} onLoadExample={loadExample}
+        onGenerate={generateFull} busy={busy} error={error}
+        scriptBeats={scriptBeats} stale={stale} onOpenCase={openCase}
+        onCopy={copyScript} copied={copied} onOpenLibrary={() => openLibrary('form')}
+      />
+      {busy && <GeneratingToast />}
+    </>
   )
 }
 

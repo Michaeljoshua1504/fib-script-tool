@@ -246,6 +246,19 @@ button.small { padding: 6px 14px; font-size: 0.82rem; }
 .script-empty h3 { margin: 6px 0 0; color: var(--ink); font-size: 1.15rem; }
 .script-empty p { margin: 0; max-width: 40ch; font-size: 0.95rem; line-height: 1.5; }
 .script-empty-icon { width: 52px; height: 52px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; background: var(--accent-yellow-tint); color: var(--yellow-ink); }
+/* floating "generating" loader */
+.gen-toast { position: fixed; left: 50%; bottom: 32px; transform: translateX(-50%); z-index: 80; display: flex; flex-direction: column; align-items: center; gap: 6px; width: min(380px, 92vw); padding: 22px 26px 24px; text-align: center; background: var(--surface); color: var(--ink); border: 1.5px solid var(--ink); border-radius: 20px; box-shadow: 0 18px 48px rgba(29,43,46,0.3); overflow: hidden; animation: gen-in .25s ease-out; }
+.gen-beats { display: flex; gap: 7px; margin-bottom: 8px; }
+.gen-beats span { width: 22px; height: 22px; border-radius: 6px; background: var(--hairline-strong); animation: gen-beat 1.4s ease-in-out infinite; }
+.gen-beats span:nth-child(1) { --c: #8B5CF6; } .gen-beats span:nth-child(2) { --c: #EC4899; } .gen-beats span:nth-child(3) { --c: #F97316; } .gen-beats span:nth-child(4) { --c: #06B6D4; }
+.gen-beats span:nth-child(5) { --c: #3B82F6; } .gen-beats span:nth-child(6) { --c: #22C55E; } .gen-beats span:nth-child(7) { --c: #F43F5E; }
+.gen-title { font-family: "Space Grotesk", sans-serif; font-weight: 700; font-size: 1.1rem; }
+.gen-dots i { font-style: normal; animation: gen-dot 1.2s infinite; }
+.gen-dots i:nth-child(2) { animation-delay: .2s; } .gen-dots i:nth-child(3) { animation-delay: .4s; }
+.gen-sub { font-size: 12.5px; color: var(--muted); line-height: 1.4; }
+.gen-time { font-size: 12px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
+.gen-bar { position: absolute; left: 0; bottom: 0; height: 4px; width: 40%; background: linear-gradient(90deg, #8B5CF6, #EC4899, #F97316); border-radius: 4px; animation: gen-slide 1.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .gen-beats span, .gen-bar, .gen-dots i { animation-duration: 3s; } }
 .output-actions { flex: none; }
 /* give the script as much room as possible: tight panel padding, actions up in the header, compact text */
 .split-script .output { padding: 14px 18px 12px; }
@@ -267,9 +280,6 @@ button.small { padding: 6px 14px; font-size: 0.82rem; }
 .why-note ol { margin: 0; padding-left: 20px; }
 .why-note li { margin: 3px 0; }
 .why-note .why-foot { margin-top: 12px; color: var(--muted); font-size: 0.85rem; }
-@keyframes why-pulse { 0% { box-shadow: 0 0 0 0 rgba(77,166,135,0.55); } 100% { box-shadow: 0 0 0 9px rgba(77,166,135,0); } }
-@keyframes why-glow { 0%, 100% { box-shadow: 0 0 0 0 rgba(107,63,209,0); } 50% { box-shadow: 0 0 0 4px rgba(107,63,209,0.14); } }
-@keyframes why-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .why-btn, .why-dot { animation: none; } }
 /* narrow screens, and embedded in another page (which resizes itself to fit): plain stacked page scroll */
 @media (max-width: 900px) {
@@ -540,3 +550,12 @@ button.primary-soft:hover { opacity: 0.88; }
 .theme-toggle .tt-label { display: none; }
 .theme-toggle:hover .tt-label, .theme-toggle:focus-within .tt-label { display: inline; }
 }
+
+/* animations live outside the .fib-tool block so they also work in the dev server */
+@keyframes gen-beat { 0%, 100% { background-color: var(--hairline-strong); transform: scale(1); } 35% { background-color: var(--c); transform: scale(1.18); } 70% { background-color: var(--c); transform: scale(1); } }
+@keyframes gen-dot { 0%, 100% { opacity: .2; } 50% { opacity: 1; } }
+@keyframes gen-slide { 0% { left: -40%; } 100% { left: 100%; } }
+@keyframes gen-in { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@keyframes why-pulse { 0% { box-shadow: 0 0 0 0 rgba(77,166,135,0.55); } 100% { box-shadow: 0 0 0 9px rgba(77,166,135,0); } }
+@keyframes why-glow { 0%, 100% { box-shadow: 0 0 0 0 rgba(107,63,209,0); } 50% { box-shadow: 0 0 0 4px rgba(107,63,209,0.14); } }
+@keyframes why-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
