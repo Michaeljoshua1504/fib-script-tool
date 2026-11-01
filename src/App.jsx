@@ -1,4 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
+import Library from './Library.jsx'
+import { saveImages, savedForCase, downloadImage, downloadZip, fmtDateTime } from './storage.js'
 
 const FIELD_DEFS = [
   { id: 'fTitle', label: 'Case title', type: 'text', group: 'Beat 1 · Cold open', placeholder: 'FIB-0XX — short case name' },
@@ -21,9 +23,12 @@ const EMPTY_FIELDS = Object.fromEntries(FIELD_DEFS.map((f) => [f.id, '']))
 const PANEL_ACCENTS = ['--disruption', '--improvement', '--accent-yellow']
 
 const SKETCH_LABELS = [
-  'Establishing shot', 'Chain map — red = hit by the shock', 'The break',
+  'Establishing shot', 'Chain map — in order', 'The break',
   'Two-shot — reaction', 'Your turn: the fork', 'Aftermath', 'Closing shot',
 ]
+
+// icon for the decision-fork panel (it has no illustration slot of its own)
+const FORK_SVG = `<svg viewBox="0 0 140 80" width="60" height="60" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="70" cy="12" r="6"/><path d="M70 18 V30 M70 30 H30 V46 M70 30 H110 V46"/><rect x="14" y="46" width="32" height="16" rx="5" stroke="var(--panel-accent)"/><rect x="94" y="46" width="32" height="16" rx="5" stroke="var(--panel-accent)"/><path d="M30 62 V70 H70 M110 62 V70 H70" /></svg>`
 
 const SKETCH_SVGS = [
   `<svg viewBox="0 0 140 80" width="60" height="60" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="18" y="34" width="46" height="34"/><path d="M18 34 L41 18 L64 34"/><rect x="30" y="46" width="8" height="8"/><rect x="46" y="46" width="8" height="8"/><path d="M90 14 L78 40 L92 40 L80 66" stroke="var(--panel-accent)" stroke-width="3"/></svg>`,
@@ -241,7 +246,7 @@ function AutoGrowTextarea({ value, onChange, className, ...rest }) {
 
 // ---------- Fields form ----------
 
-function FieldsForm({ fields, setField, onLoadExample, onGenerate, busy, error, scriptBeats, onOpenCase, onCopy, copied }) {
+function FieldsForm({ fields, setField, onLoadExample, onGenerate, busy, error, scriptBeats, onOpenCase, onCopy, copied, onOpenLibrary }) {
   return (
     <div className="wrap narrow">
       <div className="hero-band">
@@ -270,6 +275,7 @@ function FieldsForm({ fields, setField, onLoadExample, onGenerate, busy, error, 
         <button type="button" className="ghost" onClick={() => onLoadExample(EXAMPLE_014)} disabled={busy}>Load FIB-014 example</button>
         <button type="button" className="ghost" onClick={() => onLoadExample(EXAMPLE_010)} disabled={busy}>Load FIB-010 example</button>
         <button type="button" className="ghost" onClick={() => onLoadExample(EXAMPLE_001)} disabled={busy}>Load FIB-001 example</button>
+        <button type="button" className="ghost" onClick={onOpenLibrary}>Saved library</button>
         <button type="button" className="primary" onClick={onGenerate} disabled={busy}>{busy ? 'Thinking…' : 'Generate script'}</button>
       </div>
 
@@ -296,31 +302,29 @@ function FieldsForm({ fields, setField, onLoadExample, onGenerate, busy, error, 
 
 // ---------- Case page ----------
 
-/** Chain of nodes. Pass onSelect to make the nodes clickable; shockText highlights nodes the shock mentions. */
-function FlowRow({ fields, onSelect, selected, shockText }) {
+/** Chain of nodes in a balanced grid, numbered in order. Pass onSelect to make the nodes clickable. */
+function FlowRow({ fields, onSelect, selected, maxCols = 5 }) {
   const lines = parseNodeLines(fields.fNodes)
-  const shock = (shockText || '').toLowerCase()
+  const rows = Math.max(1, Math.ceil(lines.length / maxCols))
+  const cols = Math.max(1, Math.ceil(lines.length / rows)) // e.g. 6 nodes -> 3 + 3, 7 -> 4 + 3, 5 -> one row of 5
   return (
-    <div className="flow-row">
+    <div className="flow-row" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
       {lines.map((line, i) => {
         const { label, desc } = splitNodeLine(line)
-        const word = label.split(/[\s(/,:&-]+/).find((w) => w.length > 3) || label
-        const hit = shock && word && shock.includes(word.toLowerCase())
-        const cls = `flow-node${onSelect ? ' clickable' : ''}${selected === i ? ' selected' : ''}${hit ? ' hit' : ''}`
+        const hasNext = i < lines.length - 1 && i % cols !== cols - 1
+        const cls = `flow-node tone-${i % 7}${onSelect ? ' clickable' : ''}${selected === i ? ' selected' : ''}${hasNext ? ' has-next' : ''}`
         return (
-          <div key={i} style={{ display: 'contents' }}>
-            <div
-              className={cls}
-              onClick={onSelect ? () => onSelect(i) : undefined}
-              onKeyDown={onSelect ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(i) } } : undefined}
-              role={onSelect ? 'button' : undefined}
-              tabIndex={onSelect ? 0 : undefined}
-            >
-              {hit && <div className="n-hit">Hit by the shock</div>}
-              <div className="n-label">{label}</div>
-              <div className="n-desc">{desc}</div>
-            </div>
-            {i < lines.length - 1 && <div className="flow-arrow">→</div>}
+          <div
+            key={i}
+            className={cls}
+            onClick={onSelect ? () => onSelect(i) : undefined}
+            onKeyDown={onSelect ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(i) } } : undefined}
+            role={onSelect ? 'button' : undefined}
+            tabIndex={onSelect ? 0 : undefined}
+          >
+            <div className="n-step">{i + 1}</div>
+            <div className="n-label">{label}</div>
+            <div className="n-desc">{desc}</div>
           </div>
         )
       })}
@@ -341,7 +345,7 @@ function DecisionFork({ fields }) {
     out: { tag: 'The real outcome', text: fields.fOutcome },
   }[open]
   const Box = ({ k, cls, children }) => (
-    <button type="button" className={`fork-node ${cls}${open === k ? ' on' : ''}`} onClick={() => toggle(k)} aria-pressed={open === k}>{children}</button>
+    <button type="button" className={`fork-node ${cls} ${{ shock: 'tone-6', dm: 'tone-2', rr: 'tone-3', out: '' }[k]}${open === k ? ' on' : ''}`} onClick={() => toggle(k)} aria-pressed={open === k}>{children}</button>
   )
   return (
     <div className="fork">
@@ -364,7 +368,7 @@ function DecisionFork({ fields }) {
   )
 }
 
-function CastCard({ color, name, roleLabel, promptText, imageState, onGenerateImage, onCopyPrompt, copied }) {
+function CastCard({ color, name, roleLabel, promptText, imageState, onGenerateImage, onCopyPrompt, copied, onSave, onDownload, savedText }) {
   return (
     <div className="cast-card">
       <div className="cast-avatar" style={{ background: color }}>{initials(name)}</div>
@@ -373,6 +377,13 @@ function CastCard({ color, name, roleLabel, promptText, imageState, onGenerateIm
         <div className="cast-role">{roleLabel}</div>
       </div>
       {imageState?.dataUrl && <img src={imageState.dataUrl} alt={`${name} reference`} className="cast-image" />}
+      {imageState?.dataUrl && (
+        <div className="save-row">
+          <button type="button" className="small primary-soft" onClick={onSave}>{savedText ? 'Saved ✓' : 'Save'}</button>
+          <button type="button" className="ghost small" onClick={onDownload}>Download</button>
+          {savedText && <span className="saved-note">{savedText}</span>}
+        </div>
+      )}
       {promptText && (
         <>
           <button type="button" className="ghost small prompt-btn" onClick={onGenerateImage} disabled={imageState?.busy}>
@@ -454,7 +465,7 @@ function StoryPlayer({ beats, images, fields, startIndex, onClose }) {
       <div className="player-stage" onClick={next}>
         <div className="player-title">{beats[idx].title}</div>
         <div className="player-media" onClick={(e) => e.stopPropagation()}>
-          {idx === 1 && <FlowRow fields={fields} shockText={fields.fShock} />}
+          {idx === 1 && <FlowRow fields={fields} />}
           {idx === 4 && <DecisionFork fields={fields} />}
           {!DIAGRAM_BEATS.includes(idx) && (img
             ? <img src={img} alt={`Illustration for ${beats[idx].title}`} />
@@ -499,7 +510,7 @@ const CASE_TABS = [
 // Beats drawn as a diagram instead of an illustration.
 const DIAGRAM_BEATS = [1, 4]
 
-function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpenLearner, regenAll, busy, status, error }) {
+function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpenLearner, regenAll, busy, status, error, store, onOpenLibrary }) {
   const [tab, setTab] = useState('storyboard')
   const [selectedNode, setSelectedNode] = useState(null)
   const [editingPanel, setEditingPanel] = useState(null)
@@ -507,8 +518,8 @@ function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpe
   const [panelError, setPanelError] = useState('')
   const [copied, setCopied] = useState(false)
   const [copiedChar, setCopiedChar] = useState(null)
-  const [images, setImages] = useState({ dm: null, rr: null }) // { busy, error, dataUrl }
-  const [panelImages, setPanelImages] = useState({}) // index -> { busy, error, dataUrl }
+  // images live in the parent so they survive going to the learner preview and back
+  const { images, setImages, panelImages, setPanelImages } = store // images: { dm, rr }; panelImages: index -> { busy, error, dataUrl }
   const [bulk, setBulk] = useState(null) // { done, total }
   const [editDraft, setEditDraft] = useState('')
   const [player, setPlayer] = useState(null) // index the reader opens at, or null
@@ -519,6 +530,15 @@ function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpe
   const dmPrompt = characterPrompt(dm, 'makes and defends the decision', fields.fTitle, fields.fDate)
   const rrPrompt = characterPrompt(rr, 'raises the overlooked risk', fields.fTitle, fields.fDate)
   const nodeLines = parseNodeLines(fields.fNodes)
+  const drawable = scriptBeats.filter((_, i) => !DIAGRAM_BEATS.includes(i)).length
+  const drawn = scriptBeats.filter((_, i) => !DIAGRAM_BEATS.includes(i) && panelImages[i]?.dataUrl).length
+  const jumpTo = (i) => {
+    const el = document.getElementById(`panel-${i}`)
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    el.classList.add('flash')
+    setTimeout(() => el.classList.remove('flash'), 1400)
+  }
 
   const saveNode = (index, label, desc) => {
     const lines = parseNodeLines(fields.fNodes)
@@ -606,13 +626,46 @@ function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpe
   ]
   const anyBusy = bulk !== null || Object.values(panelImages).some((p) => p?.busy) || images.dm?.busy || images.rr?.busy
 
+  // ----- saving and downloading images -----
+  const caseTitle = fields.fTitle || 'Untitled case'
+  const [saved, setSaved] = useState({}) // slot -> { savedAt, dataUrl } for this case's folder
+  const [notice, setNotice] = useState(null)
+  const refreshSaved = () => savedForCase(caseTitle).then(setSaved).catch(() => setSaved({}))
+  useEffect(() => { refreshSaved() }, [caseTitle])
+  const say = (msg, isError) => { setNotice({ msg, isError }); setTimeout(() => setNotice(null), 6000) }
+  const panelLabel = (i) => `panel-${String(i + 1).padStart(2, '0')}-${scriptBeats[i].title.replace(/^\d+\.\s*/, '')}`
+  const slotItems = () => {
+    const out = []
+    if (images.dm?.dataUrl) out.push({ slot: 'dm', label: `character-${dm}`, dataUrl: images.dm.dataUrl })
+    if (images.rr?.dataUrl) out.push({ slot: 'rr', label: `character-${rr}`, dataUrl: images.rr.dataUrl })
+    scriptBeats.forEach((_, i) => { if (panelImages[i]?.dataUrl) out.push({ slot: `p${i}`, label: panelLabel(i), dataUrl: panelImages[i].dataUrl }) })
+    return out
+  }
+  const oneItem = (slot) => slotItems().filter((x) => x.slot === slot)
+  const saveItems = async (items) => {
+    if (!items.length) return say('Draw an image first.', true)
+    try {
+      await saveImages({ title: caseTitle, fields, beats: scriptBeats }, items)
+      await refreshSaved()
+      say(`Saved ${items.length} image${items.length === 1 ? '' : 's'} to the folder “${caseTitle}” on ${fmtDateTime(Date.now())}.`)
+    } catch (e) { say(e.message || 'Could not save.', true) }
+  }
+  const downloadItems = (items) => {
+    if (!items.length) return say('Draw an image first.', true)
+    if (items.length === 1) downloadImage(caseTitle, items[0].label, items[0].dataUrl)
+    else downloadZip(caseTitle, items)
+  }
+  const savedText = (slot, dataUrl) => { const s = saved[slot]; return dataUrl && s && s.dataUrl === dataUrl ? `Saved ${fmtDateTime(s.savedAt)}` : null }
+
   const castCards = (
     <div className="cast-grid">
       <CastCard color="var(--disruption)" name={dm} roleLabel="Speaking role — makes the call" promptText={dmPrompt}
         imageState={images.dm} copied={copiedChar === 'dm'}
+        savedText={savedText('dm', images.dm?.dataUrl)} onSave={() => saveItems(oneItem('dm'))} onDownload={() => downloadItems(oneItem('dm'))}
         onCopyPrompt={() => copyPrompt('dm', dmPrompt)} onGenerateImage={() => generateImage('dm', dmPrompt)} />
       <CastCard color="var(--improvement)" name={rr} roleLabel="Speaking role — raises the risk" promptText={rrPrompt}
         imageState={images.rr} copied={copiedChar === 'rr'}
+        savedText={savedText('rr', images.rr?.dataUrl)} onSave={() => saveItems(oneItem('rr'))} onDownload={() => downloadItems(oneItem('rr'))}
         onCopyPrompt={() => copyPrompt('rr', rrPrompt)} onGenerateImage={() => generateImage('rr', rrPrompt)} />
       <div className="cast-card">
         <div className="cast-avatar" style={{ background: 'var(--muted)' }}>N</div>
@@ -624,17 +677,28 @@ function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpe
   return (
     <div className="wrap wide">
       {player !== null && <StoryPlayer beats={scriptBeats} images={panelImages} fields={fields} startIndex={player} onClose={() => setPlayer(null)} />}
-      <div className="case-topbar"><button type="button" className="back-link" onClick={onBack}>← Back to fields</button></div>
+      <div className="case-topbar">
+        <button type="button" className="back-link" onClick={onBack}>← Back to fields</button>
+        <button type="button" className="back-link" onClick={onOpenLibrary}>Saved library →</button>
+      </div>
 
       <div className="case-hero">
+        <div className="hero-ribbon" aria-hidden="true"><span>Comic</span></div>
         <div className="eyebrow">Case storyboard</div>
         <AutoGrowTextarea className="case-title-input" value={fields.fTitle} onChange={(e) => setField('fTitle', e.target.value)} />
         <AutoGrowTextarea className="case-date-input" value={fields.fDate} onChange={(e) => setField('fDate', e.target.value)} />
+        <div className="hero-chips">
+          <span className="chip"><span className="dot" style={{ background: 'var(--disruption)' }} />Decision: {dm}</span>
+          <span className="chip"><span className="dot" style={{ background: 'var(--improvement)' }} />Risk raised by: {rr}</span>
+          <span className="chip"><span className="dot" style={{ background: '#6B3FD1' }} />{scriptBeats.length} panels</span>
+          <span className="chip"><span className="dot" style={{ background: '#2A4FD6' }} />{nodeLines.length} chain nodes</span>
+          <span className="chip"><span className="dot" style={{ background: '#B01FA0' }} />{drawn} of {drawable} illustrations drawn</span>
+        </div>
       </div>
 
       <div className="tabbar" role="tablist">
         {CASE_TABS.map(([id, label]) => (
-          <button key={id} type="button" role="tab" aria-selected={tab === id} className={`tab${tab === id ? ' active' : ''}`} onClick={() => setTab(id)}>{label}</button>
+          <button key={id} type="button" role="tab" aria-selected={tab === id} className={`tab${tab === id ? ' active' : ''}`} onClick={() => setTab(id)}><span className={`tab-dot td-${id}`} />{label}</button>
         ))}
       </div>
 
@@ -652,6 +716,21 @@ function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpe
           </div>
           {bulk && <div className="bulk-progress"><div style={{ width: `${(bulk.done / bulk.total) * 100}%` }} /></div>}
 
+          <div className="save-bar">
+            <span className="save-bar-label">{slotItems().length} image{slotItems().length === 1 ? '' : 's'} drawn</span>
+            <button type="button" className="small primary-soft" disabled={slotItems().length === 0} onClick={() => saveItems(slotItems())}>Save all to folder</button>
+            <button type="button" className="ghost small" disabled={slotItems().length === 0} onClick={() => downloadItems(slotItems())}>Download all (.zip)</button>
+            <button type="button" className="ghost small" onClick={onOpenLibrary}>Saved library →</button>
+          </div>
+          {notice && <div className={notice.isError ? 'error-box' : 'notice-box'}>{notice.msg}</div>}
+
+          <div className="jump-row">
+            <span className="jump-label">Jump to panel</span>
+            {scriptBeats.map((b, i) => (
+              <button key={i} type="button" className={`jump-chip tone-${i % 7}${panelImages[i]?.dataUrl ? ' done' : ''}`} title={b.title} aria-label={`Go to panel ${i + 1}: ${b.title}`} onClick={() => jumpTo(i)}>{i + 1}</button>
+            ))}
+          </div>
+
           <div className="section-label" style={{ marginTop: 22 }}>Cast — reference images</div>
           {castCards}
 
@@ -659,24 +738,31 @@ function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpe
             {scriptBeats.map((beat, i) => {
               const img = panelImages[i]
               return (
-                <div className={`board-panel${i === 0 || i === 1 || i === 4 ? ' full' : ''}`} style={{ '--panel-accent': `var(${PANEL_ACCENTS[i % PANEL_ACCENTS.length]})` }} key={i}>
+                <div id={`panel-${i}`} className={`board-panel tone-${i % 7}${i === 0 || i === 1 || i === 4 ? ' full' : ''}`} key={i}>
                   <div className="panel-card">
-                    <div className="panel-num-badge">#{i + 1}</div>
-                    <div className="panel-title">{beat.title}</div>
+                    <div className="panel-ribbon" aria-hidden="true"><span>#{i + 1}</span></div>
+                    <div className="panel-head">
+                      <div className="panel-icon" dangerouslySetInnerHTML={{ __html: SKETCH_SVGS[i] || FORK_SVG }} />
+                      <div>
+                        <div className="panel-title">{beat.title}</div>
+                        <div className="panel-sub">{SKETCH_LABELS[i]}</div>
+                      </div>
+                    </div>
 
-                    {i === 1 && <div className="sketch-box diagram"><FlowRow fields={fields} shockText={fields.fShock} /><span className="sketch-label">{SKETCH_LABELS[i]}</span></div>}
+                    {i === 1 && <div className="sketch-box diagram"><FlowRow fields={fields} /><span className="sketch-label">{SKETCH_LABELS[i]}</span></div>}
                     {i === 4 && <div className="sketch-box diagram"><DecisionFork fields={fields} /></div>}
                     {!DIAGRAM_BEATS.includes(i) && (
                       img?.dataUrl
                         ? <img src={img.dataUrl} alt={`Illustration for ${beat.title}`} className="panel-image" onClick={() => setPlayer(i)} title="Click to open in the reader" />
                         : (
-                          <div className="panel-placeholder">
-                            <div dangerouslySetInnerHTML={{ __html: SKETCH_SVGS[i] || '' }} />
-                            <span className="sketch-label">{img?.busy ? 'Drawing the scene…' : SKETCH_LABELS[i]}</span>
-                          </div>
+                          <button type="button" className={`panel-placeholder${img?.busy ? ' busy' : ''}`} disabled={img?.busy || bulk !== null} onClick={() => generatePanelImage(i)}>
+                            <span className="ph-icon" dangerouslySetInnerHTML={{ __html: SKETCH_SVGS[i] || '' }} />
+                            <span className="ph-text">{img?.busy ? 'Drawing the scene…' : 'Click to draw this scene'}</span>
+                          </button>
                         )
                     )}
                     {img?.error && <div className="error-box" style={{ marginBottom: 10 }}>{img.error}</div>}
+                    {savedText(`p${i}`, img?.dataUrl) && <div className="saved-note panel-saved">✓ {savedText(`p${i}`, img?.dataUrl)}</div>}
 
                     {editingPanel === i ? (
                       <AutoGrowTextarea autoFocus className="panel-edit-area" value={editDraft} onChange={(e) => setEditDraft(e.target.value)} onBlur={() => saveEditedPanel(i, editDraft)} />
@@ -691,6 +777,12 @@ function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpe
                         <button type="button" className="small primary-soft" disabled={img?.busy || bulk !== null} onClick={() => generatePanelImage(i)}>
                           {img?.busy ? 'Drawing…' : img?.dataUrl ? 'Redraw illustration' : 'Generate illustration'}
                         </button>
+                      )}
+                      {img?.dataUrl && (
+                        <>
+                          <button type="button" className="ghost small" onClick={() => saveItems(oneItem(`p${i}`))}>{savedText(`p${i}`, img.dataUrl) ? 'Saved ✓' : 'Save'}</button>
+                          <button type="button" className="ghost small" onClick={() => downloadItems(oneItem(`p${i}`))}>Download</button>
+                        </>
                       )}
                       <button type="button" className="ghost small" onClick={() => openEdit(i)}>Edit text</button>
                       <button type="button" className="ghost small" onClick={() => setPlayer(i)}>▶ Present from here</button>
@@ -707,8 +799,7 @@ function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpe
       {tab === 'flow' && (
         <>
           <div className="section-label">Supply chain — click a node to read or edit it</div>
-          <div className="legend"><span className="legend-dot hit" /> Mentioned in the shock</div>
-          <FlowRow fields={fields} onSelect={setSelectedNode} selected={selectedNode} shockText={fields.fShock} />
+          <FlowRow fields={fields} onSelect={setSelectedNode} selected={selectedNode} />
           {selectedNode !== null && nodeLines[selectedNode] !== undefined && (() => {
             const { label, desc } = splitNodeLine(nodeLines[selectedNode])
             return (
@@ -813,7 +904,7 @@ function LearnerPreview({ fields, scriptBeats, onBack }) {
         <div className="learner-step-label">Step {stepIndex + 1} of {steps.length} · {step.label}</div>
 
         {step.kind === 'intro' && (<>
-          <FlowRow fields={fields} editable={false} />
+          <FlowRow fields={fields} maxCols={3} />
           <div className="panel-body">{renderBeatBody(scriptBeats[step.beatIndex].body)}</div>
         </>)}
 
@@ -859,8 +950,11 @@ function LearnerPreview({ fields, scriptBeats, onBack }) {
 
 function Tool() {
   const [fields, setFields] = useState(EMPTY_FIELDS)
-  const [view, setView] = useState('form') // 'form' | 'case' | 'learner'
+  const [view, setView] = useState('form') // 'form' | 'case' | 'learner' | 'library'
   const [scriptBeats, setScriptBeats] = useState(null)
+  const [images, setImages] = useState({ dm: null, rr: null }) // character reference images
+  const [panelImages, setPanelImages] = useState({}) // panel index -> { busy, error, dataUrl }
+  const [libFrom, setLibFrom] = useState('form')
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
@@ -877,6 +971,8 @@ function Tool() {
     try {
       const result = await callApi(fields)
       setScriptBeats(parseBeats(result.text))
+      setImages({ dm: null, rr: null }) // a new script means the old pictures no longer match
+      setPanelImages({})
       const warn = result.warnings?.length ? ` Check against your fields: ${result.warnings.join('; ')}.` : ''
       setStatus((result.truncated ? 'Done — cut short, try trimming a field.' : 'Done.') + warn)
       return true
@@ -905,9 +1001,30 @@ function Tool() {
     try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch {}
   }
 
+  const openLibrary = (from) => { setLibFrom(from); setView('library') }
+  // reopen a saved story: its fields, script and saved images
+  const openSaved = (rec) => {
+    setFields({ ...EMPTY_FIELDS, ...rec.fields })
+    setScriptBeats(rec.beats)
+    const chars = { dm: null, rr: null }
+    const panels = {}
+    for (const im of rec.images) {
+      if (im.slot === 'dm' || im.slot === 'rr') chars[im.slot] = { dataUrl: im.dataUrl }
+      else if (/^p\d+$/.test(im.slot)) panels[Number(im.slot.slice(1))] = { dataUrl: im.dataUrl }
+    }
+    setImages(chars)
+    setPanelImages(panels)
+    setView('case')
+  }
+
+  if (view === 'library') {
+    return <Library onBack={() => setView(libFrom === 'case' && scriptBeats ? 'case' : 'form')} onOpenStory={openSaved} />
+  }
+
   if (view === 'case' && scriptBeats) {
     return (
       <CasePage
+        store={{ images, setImages, panelImages, setPanelImages }} onOpenLibrary={() => openLibrary('case')}
         fields={fields} setField={setField}
         scriptBeats={scriptBeats} setScriptBeats={setScriptBeats}
         onBack={() => setView('form')}
@@ -926,7 +1043,7 @@ function Tool() {
       fields={fields} setField={setField} onLoadExample={loadExample}
       onGenerate={generateFull} busy={busy} error={error}
       scriptBeats={scriptBeats} onOpenCase={openCase}
-      onCopy={copyScript} copied={copied}
+      onCopy={copyScript} copied={copied} onOpenLibrary={() => openLibrary('form')}
     />
   )
 }
