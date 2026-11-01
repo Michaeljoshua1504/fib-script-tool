@@ -1105,6 +1105,49 @@ function Gate() {
   )
 }
 
+// ---------- Theme: light / dark / auto ----------
+// The choice is remembered in this browser. "Auto" follows the computer's setting. A host page can force a
+// theme with ?theme=light or ?theme=dark (the switch is then hidden).
+
+const THEME_KEY = 'fib-theme'
+const THEME_OPTIONS = [['light', '☀', 'Light'], ['system', '◐', 'Auto'], ['dark', '☾', 'Dark']]
+const forcedTheme = () => {
+  try { const t = new URLSearchParams(window.location.search).get('theme'); return t === 'light' || t === 'dark' ? t : null } catch { return null }
+}
+const storedTheme = () => {
+  try { const t = localStorage.getItem(THEME_KEY); return t === 'light' || t === 'dark' || t === 'system' ? t : 'system' } catch { return 'system' }
+}
+const systemIsDark = () => typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)').matches : false
+
+function useTheme() {
+  const forced = forcedTheme()
+  const [pref, setPref] = useState(storedTheme)
+  const [sysDark, setSysDark] = useState(systemIsDark)
+  useEffect(() => {
+    if (!window.matchMedia) return
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const on = (e) => setSysDark(e.matches)
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [])
+  const resolved = forced || (pref === 'system' ? (sysDark ? 'dark' : 'light') : pref)
+  useEffect(() => { document.documentElement.dataset.theme = resolved }, [resolved])
+  const choose = (v) => { setPref(v); try { localStorage.setItem(THEME_KEY, v) } catch {} }
+  return { pref, resolved, choose, forced: Boolean(forced) }
+}
+
+function ThemeToggle({ pref, onChoose }) {
+  return (
+    <div className="theme-toggle" role="group" aria-label="Colour theme">
+      {THEME_OPTIONS.map(([id, icon, label]) => (
+        <button key={id} type="button" aria-pressed={pref === id} title={`${label} mode`} onClick={() => onChoose(id)}>
+          <span aria-hidden="true">{icon}</span><span className="tt-label">{label}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
 // ---------- Root: scoped container + embed mode ----------
 // Add ?embed=1 to the URL when showing the tool inside another page (e.g. in an iframe on the
 // dashboard): the background goes transparent and the page reports its height to the parent via
@@ -1113,6 +1156,7 @@ function Gate() {
 export default function App() {
   const embed = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('embed') === '1'
   const rootRef = useRef(null)
+  const theme = useTheme()
 
   useEffect(() => {
     if (!embed || window.parent === window) return
@@ -1124,8 +1168,9 @@ export default function App() {
   }, [embed])
 
   return (
-    <div ref={rootRef} className={`fib-tool${embed ? ' embed' : ''}`}>
+    <div ref={rootRef} className={`fib-tool${embed ? ' embed' : ''}`} data-theme={theme.resolved}>
       <Gate />
+      {!theme.forced && <ThemeToggle pref={theme.pref} onChoose={theme.choose} />}
     </div>
   )
 }
