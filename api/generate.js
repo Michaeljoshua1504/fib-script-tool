@@ -15,12 +15,12 @@ const GEMINI_MODEL = process.env.GEMINI_TEXT_MODEL || 'gemini-3.5-flash-lite';
 const ANTHROPIC_MODEL = 'claude-sonnet-5-5';
 
 const BEAT_DEFS = [
-  { num: 1, title: 'Cold open', rule: "using CASE TITLE and DATE & LOCATION: one date/location line, then one establishing-shot scene description." },
+  { num: 1, title: 'Cold open', rule: "using CASE TITLE, DATE & LOCATION and CHAIN NODES. Line 1: the date and location exactly as given, in bold. Line 2: ONE sentence describing a purely visual, neutral establishing shot of the place or industry BEFORE anything goes wrong (what a camera would see: the type of site, equipment, people at work). It must not state or imply any event, trend, or condition — no words like growing, booming, thriving, crisis, escalating, tension — and must not add any name, number, or place that is not in the fields." },
   { num: 2, title: 'Normal operations', rule: "using CHAIN NODES exactly as given: a bullet list, one line per node listed, in the order given. Do not add, remove, merge, or rename nodes." },
-  { num: 3, title: 'The shock', rule: "using THE SHOCK: a short narrator paragraph." },
+  { num: 3, title: 'The shock', rule: "using THE SHOCK: a narrator caption of 2–4 sentences (at most 85 words) that condenses THE SHOCK. Keep what broke, when it happened, the cause exactly as THE SHOCK states it, and every figure that measures the damage or scale, exactly as written. Do not copy the whole field; leave out only secondary detail; add nothing." },
   { num: 4, title: 'Two reactions', rule: "using DECISION, DECISION MAKER, RISK, and RISK RAISER. Exactly two panels. Panel 1: the speaker named in DECISION MAKER states the content of DECISION (paraphrased, punchy, comic dialogue). Panel 2: the speaker named in RISK RAISER raises the content of RISK (paraphrased), and the DECISION MAKER gives one short in-character reply defending the choice. Use these two labels exactly as given, never swapped, never a third speaker." },
-  { num: 5, title: 'The decision beat', rule: "one short line framed as a direct question to the reader, built from the tension between DECISION and RISK." },
-  { num: 6, title: 'Fallout', rule: "using OUTCOME: a short narrator paragraph, every number and date kept exactly as given." },
+  { num: 5, title: 'The decision beat', rule: "ONE question to the reader (at most 28 words) asked at the moment of decision, before the outcome is known. Present the two real options neutrally, each as an ACTION the reader could take: option A is what the DECISION MAKER did; option B is the alternative action the RISK points to (the check, certification, verification, contingency or visibility that was missing) — never a description of the existing problem. Do not hint which is right. Do not mention any result from OUTCOME, and do not use loaded words (e.g. reckless, rush, bypass) unless they appear in the fields. Start with something like \"What would you do\" or \"Would you\"." },
+  { num: 6, title: 'Fallout', rule: "using OUTCOME: a narrator caption of 3–5 sentences (at most 110 words) that condenses OUTCOME in its original order. Keep EVERY number, percentage, currency amount and date from OUTCOME exactly as written; drop only secondary wording. Add no cause, judgement or consequence that OUTCOME does not state." },
   { num: 7, title: 'Lesson line', rule: "if LESSON FACT is given, state it directly as the closing line, rephrased for punch but adding no claim, cause, ranking, or consequence beyond what LESSON FACT itself says; otherwise draw one short closing line stated only from facts in OUTCOME, with the same restriction. Never add a causal or superlative claim (\"this was the one that cost the most\", \"this is why it failed\") unless that exact claim is stated in the given fields." },
 ];
 
@@ -96,16 +96,16 @@ ${fieldsBlock(fields)}`;
 
 // ---------- model calls ----------
 
-async function callGemini(messages, maxTokens) {
+async function callGemini(messages, maxTokens, opts = {}) {
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': process.env.GEMINI_API_KEY },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: SYSTEM }] },
+        systemInstruction: { parts: [{ text: opts.system || SYSTEM }] },
         contents: messages.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.text }] })),
-        generationConfig: { temperature: 0.3, maxOutputTokens: maxTokens },
+        generationConfig: { temperature: opts.json ? 0 : 0.3, maxOutputTokens: maxTokens, ...(opts.json ? { responseMimeType: 'application/json' } : {}) },
       }),
     }
   );
@@ -117,15 +117,15 @@ async function callGemini(messages, maxTokens) {
   return { text, truncated: cand?.finishReason === 'MAX_TOKENS' };
 }
 
-async function callAnthropic(messages, maxTokens) {
+async function callAnthropic(messages, maxTokens, opts = {}) {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({
       model: ANTHROPIC_MODEL,
       max_tokens: maxTokens,
-      temperature: 0.3,
-      system: SYSTEM,
+      temperature: opts.json ? 0 : 0.3,
+      system: opts.system || SYSTEM,
       messages: messages.map((m) => ({ role: m.role, content: m.text })),
     }),
   });
@@ -179,6 +179,70 @@ function validate(text, fields, beatNum) {
   return problems;
 }
 
+// ---------- stricter checks and the fact-check pass ----------
+
+/** Text of beat n ("## n. ..." up to the next "## "), or the whole text when only one beat was generated. */
+function sectionOf(text, n, singleBeat) {
+  if (singleBeat) return text;
+  const m = text.split(new RegExp(`^## ${n}\\.`, 'm'))[1];
+  return m ? m.split(/^## /m)[0] : '';
+}
+const wordCount = (s) => (s.match(/\S+/g) || []).length;
+const SCENE_BANNED = /\b(grow(ing|th)|boom(ing)?|thriv(e|ing)|crisis|escalat\w*|tension|bustling|humming|rapid\w*|booming|chaos|panic|turmoil)\b/i;
+
+/** Rules a script must meet beyond the number/speaker/language checks. */
+function validateBeats(text, fields, beatNum) {
+  const problems = [];
+  const single = Boolean(beatNum);
+  const want = (n) => !single || beatNum === n;
+
+  if (want(1)) {
+    const scene = sectionOf(text, 1, single).split('\n').filter((l) => l.trim() && !l.trim().startsWith('## ') && !l.trim().startsWith('**')).join(' ');
+    const hit = scene.match(SCENE_BANNED);
+    if (hit) problems.push(`beat 1 establishing shot must be neutral and visual; remove the word "${hit[0]}"`);
+  }
+  for (const [n, fieldId, label, maxWords] of [[3, 'fShock', 'THE SHOCK', 105], [6, 'fOutcome', 'OUTCOME', 130]]) {
+    if (!want(n)) continue;
+    const sec = sectionOf(text, n, single).split('\n').filter((l) => !l.trim().startsWith('## ')).join('\n');
+    if (wordCount(sec) > maxWords) problems.push(`beat ${n} is too long (${wordCount(sec)} words, max ${maxWords}); condense it`);
+    const have = new Set(numberTokens(sec));
+    const lost = [...new Set(numberTokens(fields[fieldId] || ''))].filter((x) => !have.has(x));
+    if (lost.length) problems.push(`beat ${n} leaves out figures from ${label}: ${lost.join(', ')}`);
+  }
+  if (want(5)) {
+    const sec = sectionOf(text, 5, single).split('\n').filter((l) => l.trim() && !l.trim().startsWith('## ')).join(' ');
+    if (!sec.includes('?')) problems.push('beat 5 must be a question to the reader');
+    if (wordCount(sec) > 34) problems.push(`beat 5 is too long (${wordCount(sec)} words, max 28)`);
+  }
+  return problems;
+}
+
+function parseJson(s) {
+  try { return JSON.parse(s.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim()); } catch { return null; }
+}
+
+const CHECKER_SYSTEM = 'You are a strict, literal fact-checker for comic scripts. You only report clear, specific problems and never praise.';
+
+/** Asks the model to compare the script with the source fields and list unsupported or distorted statements. */
+async function factCheck(call, fields, script) {
+  const prompt = `Compare this comic SCRIPT with the SOURCE FIELDS it was written from. List every statement in the script that is a problem:
+- "unsupported": states a fact, cause, event, name, number, ranking or consequence that the fields do not state. In beat 1 the only allowed scene detail is a neutral visual of the place/industry; anything that asserts an event, trend or condition is unsupported.
+- "altered": changes or distorts something the fields state (a number, date, order of events, who did what).
+- "role": in beat 4 a speaker says something that contradicts their field (the DECISION MAKER voices DECISION; the RISK RAISER voices RISK) or adds a justification the fields do not give.
+- "leading": beat 5 hints which option is right, reveals the outcome, or uses loaded words not in the fields.
+Report only clear problems. If the script is faithful, return an empty list.
+Return JSON only: {"issues":[{"beat":1,"type":"unsupported","quote":"exact words from the script","problem":"one short sentence"}]}
+
+${fieldsBlock(fields)}
+SCRIPT:
+${script}`;
+  const r = await call([{ role: 'user', text: prompt }], 2000, { system: CHECKER_SYSTEM, json: true });
+  const parsed = parseJson(r.text);
+  return Array.isArray(parsed?.issues) ? parsed.issues.filter((i) => i && i.quote && i.problem) : [];
+}
+
+const describeIssue = (i) => `beat ${i.beat ?? '?'} (${i.type || 'issue'}): "${String(i.quote).slice(0, 140)}" — ${i.problem}`;
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed' });
@@ -213,23 +277,53 @@ export default async function handler(req, res) {
   const call = provider === 'anthropic' ? callAnthropic : callGemini;
 
   try {
+    const check = (text) => [...validate(text, fields, beatNum), ...validateBeats(text, fields, beatNum)];
     let messages = [{ role: 'user', text: prompt }];
     let result = await call(messages, maxTokens);
-    let problems = validate(result.text, fields, beatNum);
+    let problems = check(result.text);
 
     if (problems.length) {
-      // One self-correction pass: show the model its own draft and the specific problems.
+      // Self-correction pass: show the model its own draft and the specific problems.
       messages = [
         ...messages,
         { role: 'assistant', text: result.text },
-        { role: 'user', text: `Your draft has these problems:\n- ${problems.join('\n- ')}\n\nRewrite it fixing every problem. Remove or correct anything not supported by the fields. Output only the corrected markdown in the same format.` },
+        { role: 'user', text: `Your draft has these problems:
+- ${problems.join('\n- ')}
+
+Rewrite it fixing every problem. Remove or correct anything not supported by the fields. Output only the corrected markdown in the same format.` },
       ];
       const retry = await call(messages, maxTokens);
-      const retryProblems = validate(retry.text, fields, beatNum);
+      const retryProblems = check(retry.text);
       if (retryProblems.length <= problems.length) { result = retry; problems = retryProblems; }
     }
 
-    res.status(200).json({ text: result.text, truncated: result.truncated, warnings: problems });
+    // Fact-check pass: a second, literal read of the script against the fields; flagged statements are rewritten.
+    let remaining = [];
+    if (process.env.SCRIPT_VERIFY !== '0') {
+      try {
+        const issues = await factCheck(call, fields, result.text);
+        remaining = issues;
+        if (issues.length) {
+          const fixed = await call([
+            { role: 'user', text: prompt },
+            { role: 'assistant', text: result.text },
+            { role: 'user', text: `A fact-checker found these problems:
+- ${issues.map(describeIssue).join('\n- ')}
+
+Fix every one: remove or rewrite each flagged statement so that it is supported by the fields. Change nothing else. Output the complete corrected script in the same markdown format.` },
+          ], maxTokens);
+          const fixedProblems = check(fixed.text);
+          if (fixedProblems.length <= problems.length) {
+            result = fixed;
+            problems = fixedProblems;
+            remaining = await factCheck(call, fields, fixed.text);
+          }
+        }
+      } catch { /* the fact-check is best-effort; keep the script we have */ }
+    }
+    const warnings = [...problems, ...remaining.map((i) => 'fact-check: ' + describeIssue(i))];
+
+    res.status(200).json({ text: result.text, truncated: result.truncated, warnings });
   } catch (err) {
     if (err.upstream) {
       res.status(502).json({ error: err.message, detail: err.detail });
