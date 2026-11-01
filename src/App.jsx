@@ -126,8 +126,8 @@ function initials(name) {
 }
 
 function firstSentence(text) {
-  const clean = (text || '').replace(/\*\*(.+?):\*\*/g, '$1:').replace(/\n/g, ' ').trim()
-  const m = clean.match(/^[^.!?]*[.!?]/)
+  const clean = (text || '').replaceAll('**', '').split('\n').map((l) => l.trim().replace(/^- /, '')).filter(Boolean).join('; ')
+  const m = clean.match(/^.*?[.!?](?=\s|$)/) // a full stop only ends the sentence when a space follows, so "2.5 million" stays whole
   let s = m ? m[0].trim() : clean.slice(0, 90)
   if (s.length > 95) s = s.slice(0, 92).trim() + '…'
   return s || '—'
@@ -246,56 +246,115 @@ function AutoGrowTextarea({ value, onChange, className, ...rest }) {
 
 // ---------- Fields form ----------
 
-function FieldsForm({ fields, setField, onLoadExample, onGenerate, busy, error, scriptBeats, onOpenCase, onCopy, copied, onOpenLibrary }) {
+// The learner-page preview is switched off for now. Set this to true to bring its button back.
+const SHOW_LEARNER_PREVIEW = false
+
+/** Animated "why was this built" button. Hover or focus shows the note; click pins it open. */
+function WhyNote() {
+  const [pinned, setPinned] = useState(false)
+  const [hover, setHover] = useState(false)
+  const open = pinned || hover
   return (
-    <div className="wrap narrow">
-      <div className="hero-band">
-        <div className="eyebrow">Production tool</div>
-        <h1>Fields in. Script out.</h1>
-        <p className="deck">Each field below feeds one specific beat — fill them from the case's existing dashboard data. No guessing about who says what: you assign the two voices in beat 4 directly, so the script can't mix up which side argued what.</p>
-      </div>
-
-      {GROUP_ORDER.map((group, gi) => (
-        <div className="card" key={group}>
-          <span className={`card-tag ${GROUP_TAG_CLASS[gi]}`}>{group}</span>
-          {FIELD_DEFS.filter((f) => f.group === group).map((f) => (
-            <div className="field" key={f.id}>
-              <label className="field-label" htmlFor={f.id}>{f.label}</label>
-              {f.type === 'textarea' ? (
-                <AutoGrowTextarea id={f.id} value={fields[f.id]} placeholder={f.placeholder} onChange={(e) => setField(f.id, e.target.value)} />
-              ) : (
-                <input type="text" id={f.id} value={fields[f.id]} placeholder={f.placeholder} onChange={(e) => setField(f.id, e.target.value)} />
-              )}
-            </div>
-          ))}
-        </div>
-      ))}
-
-      <div className="controls">
-        <button type="button" className="ghost" onClick={() => onLoadExample(EXAMPLE_014)} disabled={busy}>Load FIB-014 example</button>
-        <button type="button" className="ghost" onClick={() => onLoadExample(EXAMPLE_010)} disabled={busy}>Load FIB-010 example</button>
-        <button type="button" className="ghost" onClick={() => onLoadExample(EXAMPLE_001)} disabled={busy}>Load FIB-001 example</button>
-        <button type="button" className="ghost" onClick={onOpenLibrary}>Saved library</button>
-        <button type="button" className="primary" onClick={onGenerate} disabled={busy}>{busy ? 'Thinking…' : 'Generate script'}</button>
-      </div>
-
-      {error && <div className="error-box">{error}</div>}
-
-      {scriptBeats && (
-        <div className="output visible">
-          <div>
-            {scriptBeats.map((b, i) => (
-              <div key={i}><h3>{b.title}</h3>{renderBeatBody(b.body)}</div>
-            ))}
-          </div>
-          <div className="output-actions">
-            <button type="button" className="ghost" onClick={onCopy}>{copied ? 'Copied' : 'Copy script'}</button>
-            <button type="button" className="primary" onClick={onOpenCase}>Open case page →</button>
-          </div>
+    <div className="why" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+      <button type="button" className="why-btn" aria-expanded={open} onClick={() => setPinned((p) => !p)}>
+        <span className="why-dot" aria-hidden="true" />
+        Get to know why we built this tool
+      </button>
+      {open && (
+        <div className="why-note" role="note">
+          <h2>Why this tool exists</h2>
+          <p>Only 7 of the 21 Future Industry in a Box cases have comics. This tool takes a case's research data and turns it into a 7-beat comic script, a storyboard with reference images, interactive flowcharts and a cast and scene list. That way the other cases can get a comic faster. Use the result as it is, or as inspiration for your own.</p>
+          <h2>How to use it</h2>
+          <ol>
+            <li>Load an example, or fill in the fields on the left from the case's data.</li>
+            <li>Click <strong>Generate script</strong>. The script appears on the right.</li>
+            <li>Check each beat against the fields. Change a field and regenerate if something is off.</li>
+            <li>Click <strong>Open case page</strong> for the storyboard, images, flowcharts and cast.</li>
+          </ol>
+          <p className="why-foot">The script only uses what you enter, so it can't invent facts.</p>
         </div>
       )}
+    </div>
+  )
+}
 
-      <p className="footer-note">Built for the Future Industry in a Box case catalog. Each field maps to one beat, so the script can't invent facts or mix up who said what — it can only assemble what you gave it.</p>
+function FieldsForm({ fields, setField, onLoadExample, onGenerate, busy, error, scriptBeats, stale, onOpenCase, onCopy, copied, onOpenLibrary }) {
+  return (
+    <div className="wrap workspace">
+      <div className="split-grid">
+        <section className="split-col split-fields" aria-label="Case fields">
+          <div className="hero-band">
+            <div className="eyebrow">Production tool</div>
+            <h1>Fields in. Script out.</h1>
+            <p className="deck">Each field feeds one specific beat — fill them from the case's dashboard data, assign the two voices in beat 4, and the script can't mix up who argued what.</p>
+            <WhyNote />
+          </div>
+          <div className="col-scroll">
+            <div className="controls controls-top">
+              <button type="button" className="ghost" onClick={() => onLoadExample(EXAMPLE_014)} disabled={busy}>Load FIB-014 example</button>
+              <button type="button" className="ghost" onClick={() => onLoadExample(EXAMPLE_010)} disabled={busy}>Load FIB-010 example</button>
+              <button type="button" className="ghost" onClick={() => onLoadExample(EXAMPLE_001)} disabled={busy}>Load FIB-001 example</button>
+              <button type="button" className="ghost" onClick={onOpenLibrary}>Saved library</button>
+              <button type="button" className="primary push-right" onClick={onGenerate} disabled={busy}>{busy ? 'Thinking…' : scriptBeats ? 'Regenerate script' : 'Generate script'}</button>
+            </div>
+            {GROUP_ORDER.map((group, gi) => (
+              <div className="card" key={group}>
+                <span className={`card-tag ${GROUP_TAG_CLASS[gi]}`}>{group}</span>
+                {FIELD_DEFS.filter((f) => f.group === group).map((f) => (
+                  <div className="field" key={f.id}>
+                    <label className="field-label" htmlFor={f.id}>{f.label}</label>
+                    {f.type === 'textarea' ? (
+                      <AutoGrowTextarea id={f.id} value={fields[f.id]} placeholder={f.placeholder} onChange={(e) => setField(f.id, e.target.value)} />
+                    ) : (
+                      <input type="text" id={f.id} value={fields[f.id]} placeholder={f.placeholder} onChange={(e) => setField(f.id, e.target.value)} />
+                    )}
+                  </div>
+                ))}
+              </div>
+            ))}
+            {error && <div className="error-box">{error}</div>}
+            <div className="controls controls-bottom">
+              <button type="button" className="primary" onClick={onGenerate} disabled={busy}>{busy ? 'Thinking…' : scriptBeats ? 'Regenerate script' : 'Generate script'}</button>
+            </div>
+            <p className="footer-note">Built for the Future Industry in a Box case catalog. Each field maps to one beat, so the script can't invent facts or mix up who said what — it can only assemble what you gave it.</p>
+          </div>
+        </section>
+
+        <aside className="split-col split-script" aria-label="Script">
+          <div className="output visible">
+            <div className="script-head">
+              <span className="script-head-title">Script</span>
+              {busy && <span className="stale-badge working">{scriptBeats ? 'Regenerating…' : 'Thinking…'}</span>}
+              {!busy && scriptBeats && stale && <span className="stale-badge">Out of date</span>}
+            </div>
+            {scriptBeats && stale && !busy && (
+              <div className="stale-note">
+                <span>You changed the fields after this script was made, so it may not match them.</span>
+                <button type="button" className="primary small" onClick={onGenerate}>Regenerate</button>
+              </div>
+            )}
+            {scriptBeats ? (
+              <div className={stale ? 'script-body is-stale' : 'script-body'}>
+                {scriptBeats.map((b, i) => (
+                  <div key={i}><h3>{b.title}</h3>{renderBeatBody(b.body)}</div>
+                ))}
+              </div>
+            ) : (
+              <div className="script-empty">
+                <div className="script-empty-icon" aria-hidden="true">✎</div>
+                <h3>{busy ? 'Writing your script…' : 'Your script will appear here'}</h3>
+                <p>{busy ? 'This usually takes a few seconds.' : 'Fill in the fields on the left, then click Generate script. The 7-beat comic script will show up in this space, right next to the fields so you can check it against them.'}</p>
+              </div>
+            )}
+            {scriptBeats && (
+              <div className="output-actions">
+                <button type="button" className="ghost" onClick={onCopy}>{copied ? 'Copied' : 'Copy script'}</button>
+                <button type="button" className="primary" onClick={onOpenCase}>Open case page →</button>
+              </div>
+            )}
+          </div>
+        </aside>
+      </div>
     </div>
   )
 }
@@ -849,8 +908,8 @@ function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpe
       )}
 
       <div className="controls" style={{ marginTop: 28 }}>
-        <button type="button" className="primary" onClick={onOpenLearner}>Preview as learner page →</button>
-        <button type="button" className="ghost" onClick={regenAll} disabled={busy}>Regenerate entire script</button>
+        {SHOW_LEARNER_PREVIEW && <button type="button" className="primary" onClick={onOpenLearner}>Preview as learner page →</button>}
+        <button type="button" className={SHOW_LEARNER_PREVIEW ? 'ghost' : 'primary'} onClick={regenAll} disabled={busy}>Regenerate entire script</button>
         <button type="button" className="ghost" onClick={copyScript}>{copied ? 'Copied' : 'Copy full script'}</button>
       </div>
       {status && <div className="status">{status}</div>}
@@ -959,6 +1018,8 @@ function Tool() {
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
+  const [madeFrom, setMadeFrom] = useState(null) // the fields the current script was made from
+  const stale = Boolean(scriptBeats) && madeFrom !== JSON.stringify(fields)
 
   const setField = (id, value) => setFields((f) => ({ ...f, [id]: value }))
   const loadExample = (data) => setFields({ ...EMPTY_FIELDS, ...data })
@@ -971,6 +1032,7 @@ function Tool() {
     try {
       const result = await callApi(fields)
       setScriptBeats(parseBeats(result.text))
+      setMadeFrom(JSON.stringify(fields))
       setImages({ dm: null, rr: null }) // a new script means the old pictures no longer match
       setPanelImages({})
       const warn = result.warnings?.length ? ` Check against your fields: ${result.warnings.join('; ')}.` : ''
@@ -1005,6 +1067,7 @@ function Tool() {
   // reopen a saved story: its fields, script and saved images
   const openSaved = (rec) => {
     setFields({ ...EMPTY_FIELDS, ...rec.fields })
+    setMadeFrom(JSON.stringify({ ...EMPTY_FIELDS, ...rec.fields }))
     setScriptBeats(rec.beats)
     const chars = { dm: null, rr: null }
     const panels = {}
@@ -1042,7 +1105,7 @@ function Tool() {
     <FieldsForm
       fields={fields} setField={setField} onLoadExample={loadExample}
       onGenerate={generateFull} busy={busy} error={error}
-      scriptBeats={scriptBeats} onOpenCase={openCase}
+      scriptBeats={scriptBeats} stale={stale} onOpenCase={openCase}
       onCopy={copyScript} copied={copied} onOpenLibrary={() => openLibrary('form')}
     />
   )
