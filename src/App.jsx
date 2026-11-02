@@ -127,9 +127,10 @@ function initials(name) {
 }
 
 function firstSentence(text) {
-  const clean = (text || '').replaceAll('**', '').split('\n').map((l) => l.trim().replace(/^- /, '')).filter(Boolean).join('; ')
+  const clean = (text || '').replaceAll('**', '').split('\n').map((l) => l.trim().replace(/^- /, '')).filter(Boolean)
+    .reduce((acc, l) => (acc ? `${acc}${/[.!?:;]$/.test(acc) ? ' ' : '; '}${l}` : l), '')
   const m = clean.match(/^.*?[.!?](?=\s|$)/) // a full stop only ends the sentence when a space follows, so "2.5 million" stays whole
-  let s = m ? m[0].trim() : clean.slice(0, 90)
+  let s = m ? m[0].trim() : clean.length > 90 ? `${clean.slice(0, 90).trim()}…` : clean
   if (s.length > 95) s = s.slice(0, 92).trim() + '…'
   return s || '—'
 }
@@ -156,7 +157,7 @@ function buildDecisionDiagram(dm, rr) {
 
 function characterPrompt(name, verb, caseTitle, where) {
   const title = (caseTitle || 'a supply-chain case').replace(/^FIB-\d+\s*—\s*/, '')
-  return `Character reference illustration for a supply-chain comic panel series. Character: "${name}", the side that ${verb}. Case context: ${title}${where ? ', ' + where : ''}. Style: clean editorial comic illustration, a consistent, reusable character design to reuse across every panel they appear in, professional business setting, no logos or text in the image, no real named individuals — a representative figure only.`
+  return `Character reference illustration for a supply-chain comic panel series. Character: "${name}", the side that ${verb}. Case context: ${title}${where ? ', ' + where : ''}. Style: clean editorial comic illustration, a consistent, reusable character design to reuse across every panel they appear in, professional business setting, shown as exactly one person, full body, on a plain simple background. Absolutely no text, letters, words, speech bubbles, captions, signs, labels or logos anywhere in the image. No real named individuals — a representative figure only.`
 }
 
 /** Markdown-lite -> array of React nodes (no dangerouslySetInnerHTML). */
@@ -784,10 +785,6 @@ function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpe
         imageState={images.rr} copied={copiedChar === 'rr'}
         savedText={savedText('rr', images.rr?.dataUrl)} onSave={() => saveItems(oneItem('rr'))} onDownload={() => downloadItems(oneItem('rr'))}
         onCopyPrompt={() => copyPrompt('rr', rrPrompt)} onGenerateImage={() => generateImage('rr', rrPrompt)} />
-      <div className="cast-card">
-        <div className="cast-avatar" style={{ background: 'var(--muted)' }}>N</div>
-        <div className="cast-info"><div className="cast-name">Narrator</div><div className="cast-role">Unseen voice — captions only, no art needed</div></div>
-      </div>
     </div>
   )
 
@@ -859,7 +856,7 @@ function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpe
             {scriptBeats.map((beat, i) => {
               const img = panelImages[i]
               return (
-                <div id={`panel-${i}`} className={`board-panel tone-${i % 7}${i === 0 || i === 1 || i === 4 ? ' full' : ''}`} key={i}>
+                <div id={`panel-${i}`} className={`board-panel tone-${i % 7}${i === 0 || i === 1 || i === 4 ? ' full' : ''}${i === 0 ? ' split-wide' : ''}`} key={i}>
                   <div className="panel-card">
                     <div className="panel-ribbon" aria-hidden="true"><span>#{i + 1}</span></div>
                     <div className="panel-head">
@@ -886,7 +883,10 @@ function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpe
                     {savedText(`p${i}`, img?.dataUrl) && <div className="saved-note panel-saved">✓ {savedText(`p${i}`, img?.dataUrl)}</div>}
 
                     {editingPanel === i ? (
-                      <AutoGrowTextarea autoFocus className="panel-edit-area" value={editDraft} onChange={(e) => setEditDraft(e.target.value)} onBlur={() => saveEditedPanel(i, editDraft)} />
+                      <>
+                        <AutoGrowTextarea autoFocus className="panel-edit-area" value={editDraft} onChange={(e) => setEditDraft(e.target.value)} onBlur={() => saveEditedPanel(i, editDraft)} />
+                        <div className="panel-note">Your change saves when you click outside the box.</div>
+                      </>
                     ) : (
                       i === 1
                         ? <div className="panel-note">The nodes above come from your chain field. Use “Edit text” to change the written list.</div>

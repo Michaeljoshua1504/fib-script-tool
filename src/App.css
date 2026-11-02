@@ -261,6 +261,15 @@ button.small { padding: 6px 14px; font-size: 0.82rem; }
 @media (prefers-reduced-motion: reduce) { .gen-beats span, .gen-bar, .gen-dots i { animation-duration: 3s; } }
 .lettering-switch { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink); cursor: pointer; margin-right: 6px; }
 .lettering-switch input { width: 16px; height: 16px; accent-color: var(--ink); }
+.cast-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; max-width: 960px; }
+/* panel 1 is full width: picture on the left, its text and buttons on the right, so a square picture doesn't float in empty space */
+.board-panel.split-wide .panel-card { display: grid; grid-template-columns: minmax(0, 460px) minmax(0, 1fr); column-gap: 26px; align-content: start; }
+.board-panel.split-wide .panel-card > * { grid-column: 2; }
+.board-panel.split-wide .panel-card > .panel-ribbon { grid-column: auto; }
+.board-panel.split-wide .panel-card > .panel-image, .board-panel.split-wide .panel-card > .panel-placeholder { grid-column: 1; grid-row: 1 / span 8; align-self: start; margin-bottom: 0; max-height: none; }
+@media (max-width: 900px) {
+  .board-panel.split-wide .panel-card { display: block; }
+}
 .output-actions { flex: none; }
 /* give the script as much room as possible: tight panel padding, actions up in the header, compact text */
 .split-script .output { padding: 14px 18px 12px; }
