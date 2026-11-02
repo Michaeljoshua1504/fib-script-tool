@@ -739,8 +739,8 @@ function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpe
   }
 
   const sceneChars = [
-    'Narrator only', 'No characters — diagram panel', 'Narrator only',
-    `${shortLabel(dm)} + ${shortLabel(rr)}`, 'Narrator, direct to reader', 'Narrator only', 'Narrator only',
+    'No characters — caption', 'No characters — diagram panel', 'No characters — caption',
+    `${shortLabel(dm)} + ${shortLabel(rr)}`, 'Question to the reader', 'No characters — caption', 'No characters — caption',
   ]
   const anyBusy = bulk !== null || Object.values(panelImages).some((p) => p?.busy) || images.dm?.busy || images.rr?.busy
 
