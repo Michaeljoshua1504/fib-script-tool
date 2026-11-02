@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect, createContext, useContext } from 'react'
+import { letterImage, clipWords } from './letter'
 import Library from './Library.jsx'
 import { saveImages, savedForCase, downloadImage, downloadZip, fmtDateTime } from './storage.js'
 
@@ -482,6 +483,16 @@ function CastCard({ color, name, roleLabel, promptText, imageState, onGenerateIm
   )
 }
 
+/** What gets lettered onto a panel's picture: speech bubbles for dialogue, otherwise a caption box. */
+function letteringFor(i, body) {
+  const items = beatItems(body)
+  const speech = items.filter((x) => x.type === 'say').map((x) => ({ speaker: x.speaker, text: x.text }))
+  if (speech.length) return { speech }
+  const lines = items.filter((x) => x.type === 'text' || x.type === 'li').map((x) => x.text)
+  if (i === 0) return { caption: lines[0] || '' } // the date and place, not the scene description
+  return { caption: clipWords(lines.join(' '), 30) }
+}
+
 /** Split a beat's markdown into dialogue lines, bullets and narration. */
 function beatItems(body) {
   const items = []
@@ -604,6 +615,10 @@ function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpe
   // images live in the parent so they survive going to the learner preview and back
   const { images, setImages, panelImages, setPanelImages } = store // images: { dm, rr }; panelImages: index -> { busy, error, dataUrl }
   const [bulk, setBulk] = useState(null) // { done, total }
+  const [lettering, setLettering] = useState(true) // draw the script's dialogue and captions on the pictures
+  const letteringRef = useRef(lettering); letteringRef.current = lettering
+  const beatsRef = useRef(scriptBeats); beatsRef.current = scriptBeats
+  const panelImagesRef = useRef(panelImages); panelImagesRef.current = panelImages
   const [editDraft, setEditDraft] = useState('')
   const [player, setPlayer] = useState(null) // index the reader opens at, or null
   const openEdit = (i) => { setEditDraft(scriptBeats[i].body.trim()); setEditingPanel(i) }
@@ -681,13 +696,32 @@ function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpe
         scene: { title: scriptBeats[i].title, body: scriptBeats[i].body },
         caseTitle: fields.fTitle, date: fields.fDate, cast: [dm, rr],
       })
-      setPanelImages((s) => ({ ...s, [i]: { busy: false, error: '', dataUrl: `data:${result.mimeType};base64,${result.data}` } }))
+      const raw = `data:${result.mimeType};base64,${result.data}`
+      let finalUrl = raw
+      if (letteringRef.current) { try { finalUrl = await letterImage(raw, letteringFor(i, beatsRef.current[i].body)) } catch {} }
+      setPanelImages((s) => ({ ...s, [i]: { busy: false, error: '', dataUrl: finalUrl, raw } }))
       return true
     } catch (e) {
-      setPanelImages((s) => ({ ...s, [i]: { busy: false, error: e.message || 'Could not generate an image.', dataUrl: prev } }))
+      setPanelImages((s) => ({ ...s, [i]: { ...s[i], busy: false, error: e.message || 'Could not generate an image.', dataUrl: prev } }))
       return false
     }
   }
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const updates = {}
+      for (const [k, im] of Object.entries(panelImagesRef.current)) {
+        if (!im?.raw || im.busy) continue
+        let next = im.raw
+        if (lettering) { try { next = await letterImage(im.raw, letteringFor(Number(k), scriptBeats[Number(k)]?.body)) } catch {} }
+        if (next !== im.dataUrl) updates[k] = next
+      }
+      if (cancelled || !Object.keys(updates).length) return
+      setPanelImages((s) => { const n = { ...s }; for (const k of Object.keys(updates)) if (n[k]?.raw) n[k] = { ...n[k], dataUrl: updates[k] }; return n })
+    })()
+    return () => { cancelled = true }
+  }, [lettering, scriptBeats])
 
   const generateAll = async () => {
     const panelIdx = scriptBeats.map((_, i) => i).filter((i) => !DIAGRAM_BEATS.includes(i))
@@ -793,6 +827,10 @@ function CasePage({ fields, setField, scriptBeats, setScriptBeats, onBack, onOpe
               <div className="bulk-sub">{bulk ? `Drawing… ${bulk.done} of ${bulk.total} done` : 'Draw both characters and every story panel in one go, or use the buttons on each panel.'}</div>
             </div>
             <div className="bulk-actions">
+              <label className="lettering-switch" title="Draws the script's dialogue and narration on top of each picture">
+                <input type="checkbox" checked={lettering} onChange={(e) => setLettering(e.target.checked)} />
+                <span>Dialogue &amp; captions on images</span>
+              </label>
               <button type="button" className="ghost" onClick={() => setPlayer(0)}>▶ Play storyboard</button>
               <button type="button" className="primary" onClick={generateAll} disabled={anyBusy}>{bulk ? 'Drawing…' : 'Generate all images'}</button>
             </div>

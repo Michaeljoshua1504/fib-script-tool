@@ -259,6 +259,8 @@ button.small { padding: 6px 14px; font-size: 0.82rem; }
 .gen-time { font-size: 12px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
 .gen-bar { position: absolute; left: 0; bottom: 0; height: 4px; width: 40%; background: linear-gradient(90deg, #8B5CF6, #EC4899, #F97316); border-radius: 4px; animation: gen-slide 1.4s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .gen-beats span, .gen-bar, .gen-dots i { animation-duration: 3s; } }
+.lettering-switch { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink); cursor: pointer; margin-right: 6px; }
+.lettering-switch input { width: 16px; height: 16px; accent-color: var(--ink); }
 .output-actions { flex: none; }
 /* give the script as much room as possible: tight panel padding, actions up in the header, compact text */
 .split-script .output { padding: 14px 18px 12px; }
