@@ -1,93 +1,94 @@
 # FIB Script Generator
 
-A React + Vite tool that turns a Future Industry in a Box case's structured
-data into a draft 7-beat comic script. Ten fields map directly onto the
-7 beats; a Vercel serverless function (`/api/generate`) calls the Anthropic
-API server-side to draft the script. Visually matches the real FIB
-dashboard's own design system (fonts, colors, card and pill styling).
+Live: https://fib-script-tool.vercel.app/
 
-Full feature set:
-- The 10-field form, with three worked examples (FIB-001, FIB-010, FIB-014)
-- An editable **case page**: click any node or fact to edit it directly,
-  text boxes auto-grow to fit their content
-- A **Cast & scene list**: auto-derived speaking characters (from your
-  Decision Maker / Risk Raiser fields) plus a 7-row scene breakdown —
-  shot type, who's in each scene, a one-line summary
-- Per character: **Copy character prompt** (a ready-to-paste description
-  for any image generator) and **Generate reference image**, which calls
-  Gemini directly and shows the result inline
-- A **storyboard**: the 7 beats as comic-styled panels in a connected
-  vertical sequence, each with a reference sketch (a dynamic branching
-  flowchart for the decision beat, simple line-art icons for the rest),
-  "Edit text" (hand edit), and "Redo this panel" (asks Claude to redraft
-  just that one beat, leaving the other six untouched)
-- A generated **learner preview**: a predict-then-reveal walkthrough built
-  from the same fields, with no case-specific code
+I built this for the Future Industry in a Box (FIB) research team. Only 7 of the
+21 FIB cases have a comic so far, and writing one by hand takes a long time. This
+tool takes a case's 10 research fields and drafts the comic for you: a 7-beat
+script, a storyboard, flowcharts, a cast list, and a library to save your work.
 
-## Local development
+It is a draft maker, not a finished product. The team still reads and edits
+everything it produces.
+
+## What it does
+
+- **Form and script side by side.** Fill in (or load) the 10 fields on the left,
+  and the 7-beat script shows on the right. If you change a field after
+  generating, the script is marked "out of date" so you know to regenerate.
+- **Three worked examples** you can load with one click: FIB-001, FIB-010 and FIB-014.
+- **Case page.** Click any node or fact to edit it directly.
+- **Cast and scene list.** The characters (taken from the Decision Maker and Risk
+  Raiser fields) and a 7-row breakdown of each scene. Each character has a
+  copyable image prompt and a "Generate reference image" button.
+- **Storyboard.** The 7 beats as comic panels, each with a picture. You can edit
+  a panel's text by hand or redo just that one panel. Dialogue and captions are
+  drawn onto the generated pictures (there is a switch to turn this off).
+- **Saved library.** Stories are saved in your own browser, and you can export
+  them as a ZIP.
+- **Learner preview.** Built, but switched off for now (`SHOW_LEARNER_PREVIEW`
+  in `src/App.jsx`). Set it to `true` to bring it back.
+
+The script is checked after it is generated: it has to have 7 beats and it must
+not invent numbers that are not in the fields. If a check fails, the tool retries.
+
+## Run it locally
 
 ```bash
 npm install
-cp .env.example .env   # then put your real keys in .env
-npm install -g vercel  # if you don't have it
-vercel dev              # runs the Vite frontend AND the /api functions together
+cp .env.example .env   # then put your own keys in .env
+npm run dev            # frontend only
 ```
 
-`npm run dev` alone only runs the frontend — Generate and the image
-buttons will fail with a 404 because the `/api` functions need Vercel's
-dev server (or a deploy) to run.
+To run the `/api` functions as well, use the Vercel dev server:
 
-## Deploy to Vercel
+```bash
+npm install -g vercel
+vercel dev
+```
 
-1. Get a free Gemini key from https://aistudio.google.com — it powers both the script and the images. (To use Claude instead, set `SCRIPT_PROVIDER=anthropic` and `ANTHROPIC_API_KEY`; Anthropic needs billing set
-   up.)
-2. Push this folder to a GitHub repo (or skip GitHub and run `vercel` from
-   inside this folder to deploy straight from your machine).
-3. On vercel.com: **Add New → Project**, import the repo. Vercel
-   auto-detects Vite; no build settings need to change.
-4. Before the first deploy finishes, go to **Project Settings →
-   Environment Variables** and add (Production, and Preview if you want
-   preview deploys to work), marking each as **Sensitive**:
-   - `APP_PASSWORD` — optional; if set, users must enter it to use the tool
-   - `GEMINI_API_KEY` — script generation
-   - `IMAGE_PROVIDER=cloudflare`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` — illustrations
-   Never put keys in the code or commit `.env`.
-5. Deploy. Vercel builds the frontend to `dist/` and automatically turns
-   `api/generate.js` and `api/generate-image.js` into serverless
-   functions at `/api/generate` and `/api/generate-image`.
+Without that, the Generate and image buttons will not work, because the API
+functions need Vercel (or a deploy) to run.
 
-### Before you rely on the image button
+## Keys (never commit `.env`)
 
-`api/generate-image.js` has a `MODEL` constant naming Gemini's
-image-capable model. Documentation on the exact current model name was
-inconsistent at the time this was written — check the current model list
-at https://ai.google.dev (or Google AI Studio) before deploying, and
-update that constant if it's changed.
+| Variable | What it is for |
+| --- | --- |
+| `GEMINI_API_KEY` | Script generation. Free key from https://aistudio.google.com |
+| `IMAGE_PROVIDER=cloudflare` | Use Cloudflare Workers AI for pictures |
+| `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` | Cloudflare credentials |
+| `APP_PASSWORD` | Optional. If set, people need it to use the tool. Off by default |
+| `SCRIPT_PROVIDER=anthropic`, `ANTHROPIC_API_KEY` | Optional. Use Claude for the script instead of Gemini |
 
-## Embedding in another site (e.g. the FIB dashboard)
+## Deploy
 
-The tool is built on the dashboard's design tokens (colors, Space Grotesk / Inter, 14px cards, pill buttons)
-and all of its CSS is scoped under a `.fib-tool` container, so it neither leaks styles into the page around
-it nor picks up that page's global styles. Add `?embed=1` to make the background transparent.
+It deploys to Vercel from the `main` branch on GitHub. Vercel detects Vite on its
+own. Add the variables above under Project Settings → Environment Variables
+(mark them Sensitive), then deploy. `api/generate.js` and `api/generate-image.js`
+become serverless functions automatically.
+
+## Embedding in another site
+
+The styling follows the FIB dashboard's look (fonts, colors, rounded cards), and
+all the CSS sits under a `.fib-tool` class so it does not leak into the page around it.
+Add `?embed=1` for a transparent background.
 
 ```html
 <iframe id="fib-tool" src="https://fib-script-tool.vercel.app/?embed=1"
         style="width:100%;border:0;min-height:700px" title="FIB script tool"></iframe>
 <script>
-  // optional: auto-resize the iframe to the tool's content
+  // optional: resize the iframe to fit the tool
   addEventListener('message', (e) => {
     if (e.data && e.data.type === 'fib-tool-height') document.getElementById('fib-tool').style.height = e.data.height + 'px';
   });
 </script>
 ```
 
-To restyle it, override the tokens from the host page's CSS, e.g. `.fib-tool { --ink: #123; --disruption: #c33; }`
-(only works when the tool's CSS is on the same page, not inside an iframe).
+To change colors, override the tokens, e.g. `.fib-tool { --ink: #123; --disruption: #c33; }`
+(this only works when the CSS is on the same page, not inside an iframe).
 
-## Cost note
+## Cost
 
-Every click of "Generate script," "Redo this panel," or "Generate
-reference image" calls an external API using these keys and costs money.
-There's no per-user login or rate limiting built in — anyone with the URL
-can use every feature. Consider adding a simple shared password check,
-or Vercel's password-protection feature, before sharing the link widely.
+Every "Generate script", "Redo this panel" and "Generate reference image" click
+calls an outside API with my keys. The image service has a limited free allowance.
+There is no rate limit and no login, so anyone with the link can use it. If the
+link gets shared widely, set `APP_PASSWORD`.
